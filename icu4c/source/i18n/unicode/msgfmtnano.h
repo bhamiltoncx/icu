@@ -53,12 +53,17 @@ public:
         STYLE_FULL,
     };
 
+    enum PluralType {
+        TYPE_PLURAL,
+        TYPE_SELECTORDINAL,
+    };
+
+    FormatProvider() = default;
     FormatProvider(const FormatProvider&) = delete;
     FormatProvider(FormatProvider&&) = delete;
     FormatProvider &operator=(const FormatProvider&) = delete;
     FormatProvider &operator=(FormatProvider&&) = delete;
 
-    FormatProvider() = default;
     virtual ~FormatProvider() {}
 
     virtual const Format* numberFormat(NumberFormatType /*type*/, const Locale& /*locale*/, UErrorCode& status) const {
@@ -91,21 +96,69 @@ public:
         return nullptr;
     }
 
-    class PluralSelectorProvider {
-  public:
-        PluralSelectorProvider(const PluralSelectorProvider&) = delete;
-        PluralSelectorProvider(PluralSelectorProvider&&) = delete;
-        PluralSelectorProvider &operator=(const PluralSelectorProvider&) = delete;
-        PluralSelectorProvider &operator=(PluralSelectorProvider&&) = delete;
+    class PluralSelector {
+    public:
+        PluralSelector() = default;
+        PluralSelector(const PluralSelector&) = delete;
+        PluralSelector(PluralSelector&&) = delete;
+        PluralSelector &operator=(const PluralSelector&) = delete;
+        PluralSelector &operator=(PluralSelector&&) = delete;
         
-        virtual ~PluralSelectorProvider();
+        virtual ~PluralSelector();
         virtual UnicodeString select(void *ctx, double number, UErrorCode& ec) const = 0;
     };
 
-    virtual const PluralSelectorProvider* pluralSelectorProviderForArgType(UMessagePatternArgType /*argType*/, UErrorCode& status) const {
+    virtual const PluralSelector* pluralSelector(PluralType /*pluralType*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
         return nullptr;
     }
+
+    virtual int32_t pluralFindSubMessage(const MessagePattern& /*pattern*/, int32_t /*partIndex*/, const PluralSelector& /*selectorProvider*/, void* /*context*/, double /*number*/, UErrorCode& status) const {
+        status = U_UNSUPPORTED_ERROR;
+        return -1;
+    }
+
+    virtual int32_t selectFindSubMessage(const MessagePattern& /*pattern*/, int32_t /*partIndex*/, const UnicodeString& /*keyword*/, UErrorCode& status) const {
+        status = U_UNSUPPORTED_ERROR;
+        return -1;
+    }
+
+    struct PluralSelectorContext {
+        PluralSelectorContext(
+            int32_t start, const UnicodeString &name,
+            const Formattable &num, double off, UErrorCode &errorCode)
+                : startIndex(start), argName(name), offset(off),
+                  numberArgIndex(-1), formatter(NULL), forReplaceNumber(FALSE) {
+            // number needs to be set even when select() is not called.
+            // Keep it as a Number/Formattable:
+            // For format() methods, and to preserve information (e.g., BigDecimal).
+            if(off == 0) {
+                number = num;
+            } else {
+                number = num.getDouble(errorCode) - off;
+            }
+        }
+
+        PluralSelectorContext(const PluralSelectorContext& other) = delete;
+        PluralSelectorContext(PluralSelectorContext&&) = delete;
+        PluralSelectorContext &operator=(const PluralSelectorContext&) = delete;
+        PluralSelectorContext &operator=(PluralSelectorContext&&) = delete;
+
+        // Input values for plural selection with decimals.
+        int32_t startIndex;
+        const UnicodeString &argName;
+        /** argument number - plural offset */
+        Formattable number;
+        double offset;
+        // Output values for plural selection with decimals.
+        /** -1 if REPLACE_NUMBER, 0 arg not found, >0 ARG_START index */
+        int32_t numberArgIndex;
+        const Format *formatter;
+        /** formatted argument number - plural offset */
+        UnicodeString numberString;
+        /** TRUE if number-offset was formatted with the stock number formatter */
+        UBool forReplaceNumber;
+    };
 };
 
 class U_I18N_API MessageFormatNano {
