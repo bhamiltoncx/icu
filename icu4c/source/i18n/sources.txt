@@ -92,6 +92,7 @@ measunit.cpp
 measunit_extra.cpp
 measure.cpp
 msgfmt.cpp
+msgfmtnano.cpp
 name2uni.cpp
 nfrs.cpp
 nfrule.cpp
