@@ -140,6 +140,97 @@ ChoiceFormatFindSubMessage(const MessagePattern &pattern, int32_t partIndex, dou
     return msgStart;
 }
 
+// Copied from PluralFormat
+int32_t
+PluralFormatFindSubMessage(const MessagePattern& pattern, int32_t partIndex,
+                           const PluralFormatProvider::Selector& selector, void *context,
+                           double number, UErrorCode& ec) {
+    if (U_FAILURE(ec)) {
+        return 0;
+    }
+    int32_t count=pattern.countParts();
+    double offset;
+    const MessagePattern::Part* part=&pattern.getPart(partIndex);
+    if (MessagePattern::Part::hasNumericValue(part->getType())) {
+        offset=pattern.getNumericValue(*part);
+        ++partIndex;
+    } else {
+        offset=0;
+    }
+    // The keyword is empty until we need to match against a non-explicit, not-"other" value.
+    // Then we get the keyword from the selector.
+    // (In other words, we never call the selector if we match against an explicit value,
+    // or if the only non-explicit keyword is "other".)
+    UnicodeString keyword;
+    UnicodeString other(u"other", 5);
+    // When we find a match, we set msgStart>0 and also set this boolean to true
+    // to avoid matching the keyword again (duplicates are allowed)
+    // while we continue to look for an explicit-value match.
+    UBool haveKeywordMatch=FALSE;
+    // msgStart is 0 until we find any appropriate sub-message.
+    // We remember the first "other" sub-message if we have not seen any
+    // appropriate sub-message before.
+    // We remember the first matching-keyword sub-message if we have not seen
+    // one of those before.
+    // (The parser allows [does not check for] duplicate keywords.
+    // We just have to make sure to take the first one.)
+    // We avoid matching the keyword twice by also setting haveKeywordMatch=true
+    // at the first keyword match.
+    // We keep going until we find an explicit-value match or reach the end of the plural style.
+    int32_t msgStart=0;
+    // Iterate over (ARG_SELECTOR [ARG_INT|ARG_DOUBLE] message) tuples
+    // until ARG_LIMIT or end of plural-only pattern.
+    do {
+        part=&pattern.getPart(partIndex++);
+        const UMessagePatternPartType type = part->getType();
+        if(type==UMSGPAT_PART_TYPE_ARG_LIMIT) {
+            break;
+        }
+        U_ASSERT (type==UMSGPAT_PART_TYPE_ARG_SELECTOR);
+        // part is an ARG_SELECTOR followed by an optional explicit value, and then a message
+        if(MessagePattern::Part::hasNumericValue(pattern.getPartType(partIndex))) {
+            // explicit value like "=2"
+            part=&pattern.getPart(partIndex++);
+            if(number==pattern.getNumericValue(*part)) {
+                // matches explicit value
+                return partIndex;
+            }
+        } else if(!haveKeywordMatch) {
+            // plural keyword like "few" or "other"
+            // Compare "other" first and call the selector if this is not "other".
+            if(pattern.partSubstringMatches(*part, other)) {
+                if(msgStart==0) {
+                    msgStart=partIndex;
+                    if(0 == keyword.compare(other)) {
+                        // This is the first "other" sub-message,
+                        // and the selected keyword is also "other".
+                        // Do not match "other" again.
+                        haveKeywordMatch=TRUE;
+                    }
+                }
+            } else {
+                if(keyword.isEmpty()) {
+                    keyword=selector.select(context, number-offset, ec);
+                    if(msgStart!=0 && (0 == keyword.compare(other))) {
+                        // We have already seen an "other" sub-message.
+                        // Do not match "other" again.
+                        haveKeywordMatch=TRUE;
+                        // Skip keyword matching but do getLimitPartIndex().
+                    }
+                }
+                if(!haveKeywordMatch && pattern.partSubstringMatches(*part, keyword)) {
+                    // keyword matches
+                    msgStart=partIndex;
+                    // Do not match this keyword again.
+                    haveKeywordMatch=TRUE;
+                }
+            }
+        }
+        partIndex=pattern.getLimitPartIndex(partIndex);
+    } while(++partIndex<count);
+    return msgStart;
+}
+
 class FormatOperation {
  public:
     FormatOperation(const Locale& locale,
@@ -334,7 +425,7 @@ void FormatOperation::format(
                     // because only this one converts non-double numeric types to double.
                     double offset = msgPattern.getPluralOffset(i);
                     PluralFormatProvider::SelectorContext context(msgPattern, numberFormatProvider, i, argName, *arg, offset, success);
-                    int32_t subMsgStart = pluralFormatProvider.findSubMessage(
+                    int32_t subMsgStart = PluralFormatFindSubMessage(
                         msgPattern, i, *selector, &context, arg->getDouble(success), success);
                     formatComplexSubMessage(subMsgStart, &context, arguments, argumentNames,
                                             cnt, appendTo, success);
