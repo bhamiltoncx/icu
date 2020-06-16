@@ -34,10 +34,10 @@ public:
     };
 
     NumberFormatProvider() = default;
+    NumberFormatProvider(NumberFormatProvider&&) = default;
+    NumberFormatProvider &operator=(NumberFormatProvider&&) = default;
     NumberFormatProvider(const NumberFormatProvider&) = delete;
-    NumberFormatProvider(NumberFormatProvider&&) = delete;
     NumberFormatProvider &operator=(const NumberFormatProvider&) = delete;
-    NumberFormatProvider &operator=(NumberFormatProvider&&) = delete;
 
     virtual ~NumberFormatProvider() {}
 
@@ -60,10 +60,10 @@ public:
 class U_I18N_API DateTimeFormatProvider {
 public:
     DateTimeFormatProvider() = default;
+    DateTimeFormatProvider(DateTimeFormatProvider&&) = default;
+    DateTimeFormatProvider &operator=(DateTimeFormatProvider&&) = default;
     DateTimeFormatProvider(const DateTimeFormatProvider&) = delete;
-    DateTimeFormatProvider(DateTimeFormatProvider&&) = delete;
     DateTimeFormatProvider &operator=(const DateTimeFormatProvider&) = delete;
-    DateTimeFormatProvider &operator=(DateTimeFormatProvider&&) = delete;
 
     virtual ~DateTimeFormatProvider() {}
 
@@ -95,10 +95,10 @@ public:
 class U_I18N_API RuleBasedNumberFormatProvider {
 public:
     RuleBasedNumberFormatProvider() = default;
+    RuleBasedNumberFormatProvider(RuleBasedNumberFormatProvider&&) = default;
+    RuleBasedNumberFormatProvider &operator=(RuleBasedNumberFormatProvider&&) = default;
     RuleBasedNumberFormatProvider(const RuleBasedNumberFormatProvider&) = delete;
-    RuleBasedNumberFormatProvider(RuleBasedNumberFormatProvider&&) = delete;
     RuleBasedNumberFormatProvider &operator=(const RuleBasedNumberFormatProvider&) = delete;
-    RuleBasedNumberFormatProvider &operator=(RuleBasedNumberFormatProvider&&) = delete;
 
     virtual ~RuleBasedNumberFormatProvider() {}
 
@@ -117,27 +117,27 @@ public:
 class U_I18N_API PluralFormatProvider {
 public:
     PluralFormatProvider() = default;
+    PluralFormatProvider(PluralFormatProvider&&) = default;
+    PluralFormatProvider &operator=(PluralFormatProvider&&) = default;
     PluralFormatProvider(const PluralFormatProvider&) = delete;
-    PluralFormatProvider(PluralFormatProvider&&) = delete;
     PluralFormatProvider &operator=(const PluralFormatProvider&) = delete;
-    PluralFormatProvider &operator=(PluralFormatProvider&&) = delete;
 
     virtual ~PluralFormatProvider() {}
 
     enum PluralType {
-        TYPE_PLURAL,
-        TYPE_SELECTORDINAL,
+        TYPE_CARDINAL,
+        TYPE_ORDINAL,
     };
 
-    class Selector {
+    class U_I18N_API Selector {
     public:
         Selector() = default;
+        Selector(Selector&&) = default;
+        Selector &operator=(Selector&&) = default;
         Selector(const Selector&) = delete;
-        Selector(Selector&&) = delete;
         Selector &operator=(const Selector&) = delete;
-        Selector &operator=(Selector&&) = delete;
 
-        virtual ~Selector();
+        virtual ~Selector() { }
         virtual UnicodeString select(void *ctx, double number, UErrorCode& ec) const = 0;
     };
 
@@ -156,11 +156,13 @@ public:
         return -1;
     }
 
-    struct SelectorContext {
+    struct U_I18N_API SelectorContext {
         SelectorContext(
+            MessagePattern msgPattern, const NumberFormatProvider& numberFormatProvider,
             int32_t start, const UnicodeString &name,
             const Formattable &num, double off, UErrorCode &errorCode)
-                : startIndex(start), argName(name), offset(off),
+                : msgPattern(msgPattern), numberFormatProvider(numberFormatProvider),
+                startIndex(start), argName(name), offset(off),
                   numberArgIndex(-1), formatter(NULL), forReplaceNumber(FALSE) {
             // number needs to be set even when select() is not called.
             // Keep it as a Number/Formattable:
@@ -172,10 +174,13 @@ public:
             }
         }
 
+        SelectorContext(SelectorContext&&) = default;
+        SelectorContext &operator=(SelectorContext&&) = default;
         SelectorContext(const SelectorContext& other) = delete;
-        SelectorContext(SelectorContext&&) = delete;
         SelectorContext &operator=(const SelectorContext&) = delete;
-        SelectorContext &operator=(SelectorContext&&) = delete;
+
+        const MessagePattern msgPattern;
+        const NumberFormatProvider& numberFormatProvider;
 
         // Input values for plural selection with decimals.
         int32_t startIndex;
@@ -235,6 +240,9 @@ public:
                       UParseError& parseError,
                       UErrorCode& status);
 
+    MessageFormatNano(MessageFormatNano&&) = default;
+    MessageFormatNano &operator=(MessageFormatNano&&) = default;
+
     /**
      * Formats the given array of arguments into a user-defined argument name
      * array. This function supports both named and numbered
@@ -260,9 +268,7 @@ public:
                           UErrorCode& status) const;
 
     MessageFormatNano(const MessageFormatNano&) = delete;
-    MessageFormatNano(MessageFormatNano&&) = delete;
     MessageFormatNano &operator=(const MessageFormatNano&) = delete;
-    MessageFormatNano &operator=(MessageFormatNano&&) = delete;
 
 private:
     const Locale locale;

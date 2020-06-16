@@ -325,7 +325,7 @@ void FormatOperation::format(
                     }
                     const PluralFormatProvider::Selector* selector =
                             pluralFormatProvider.pluralSelector(
-                                argType == UMSGPAT_ARG_TYPE_PLURAL ? PluralFormatProvider::TYPE_PLURAL : PluralFormatProvider::TYPE_SELECTORDINAL,
+                                argType == UMSGPAT_ARG_TYPE_PLURAL ? PluralFormatProvider::TYPE_CARDINAL : PluralFormatProvider::TYPE_ORDINAL,
                                 success);
                     if (U_FAILURE(success)) {
                         return;
@@ -333,7 +333,7 @@ void FormatOperation::format(
                     // We must use the Formattable::getDouble() variant with the UErrorCode parameter
                     // because only this one converts non-double numeric types to double.
                     double offset = msgPattern.getPluralOffset(i);
-                    PluralFormatProvider::SelectorContext context(i, argName, *arg, offset, success);
+                    PluralFormatProvider::SelectorContext context(msgPattern, numberFormatProvider, i, argName, *arg, offset, success);
                     int32_t subMsgStart = pluralFormatProvider.findSubMessage(
                         msgPattern, i, *selector, &context, arg->getDouble(success), success);
                     formatComplexSubMessage(subMsgStart, &context, arguments, argumentNames,
