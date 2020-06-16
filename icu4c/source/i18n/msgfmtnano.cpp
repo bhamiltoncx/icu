@@ -148,6 +148,8 @@ PluralFormatFindSubMessage(const MessagePattern& pattern, int32_t partIndex,
     if (U_FAILURE(ec)) {
         return 0;
     }
+    std::string s;
+    fprintf(stderr, "findSubMessage pattern=%s partIndex=%d (%f), ec=%s\n", pattern.getPatternString().toUTF8String(s).c_str(), partIndex, number, u_errorName(ec));
     int32_t count=pattern.countParts();
     double offset;
     const MessagePattern::Part* part=&pattern.getPart(partIndex);
@@ -228,6 +230,7 @@ PluralFormatFindSubMessage(const MessagePattern& pattern, int32_t partIndex,
         }
         partIndex=pattern.getLimitPartIndex(partIndex);
     } while(++partIndex<count);
+    fprintf(stderr, "findSubMessage msgStart=%d\n", msgStart);
     return msgStart;
 }
 
@@ -292,6 +295,9 @@ void FormatOperation::format(
         return;
     }
 
+    std::string s;
+    std::string s2;
+    fprintf(stderr, "format msgStart=%d msgPattern=%s plNumber=%p cnt=%d appendTo=[%s] success=%s\n", msgStart, msgPattern.getPatternString().toUTF8String(s).c_str(), plNumber, cnt, appendTo.toUTF8String(s2).c_str(), u_errorName(success));
     const UnicodeString& msgString = msgPattern.getPatternString();
     int32_t prevIndex = msgPattern.getPart(msgStart).getLimit();
     for (int32_t i = msgStart + 1; U_SUCCESS(success) ; ++i) {
@@ -299,6 +305,7 @@ void FormatOperation::format(
         const UMessagePatternPartType type = part->getType();
         int32_t index = part->getIndex();
         appendTo.append(msgString, prevIndex, index - prevIndex);
+        fprintf(stderr, "format i=%d partType=%d index=%d appendTo=[%s]\n", i, type, index, appendTo.toUTF8String(s).c_str());
         if (type == UMSGPAT_PART_TYPE_MSG_LIMIT) {
             return;
         }
