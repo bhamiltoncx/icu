@@ -37,6 +37,7 @@
 extern IntlTest *createBytesTrieTest();
 extern IntlTest *createLocaleMatcherTest();
 static IntlTest *createLocalPointerTest();
+extern IntlTest *createMessageFormatNanoTest();
 extern IntlTest *createUCharsTrieTest();
 static IntlTest *createEnumSetTest();
 extern IntlTest *createSimpleFormatterTest();
@@ -80,6 +81,7 @@ void IntlTestUtilities::runIndexedTest( int32_t index, UBool exec, const char* &
 #endif
     TESTCASE_AUTO_CLASS(LocaleBuilderTest);
     TESTCASE_AUTO_CREATE_CLASS(LocaleMatcherTest);
+    TESTCASE_AUTO_CREATE_CLASS(MessageFormatNanoTest);
     TESTCASE_AUTO_END;
 }
 

@@ -5,6 +5,7 @@
 
 #if !UCONFIG_NO_FORMATTING
 
+#include "cmemory.h"
 #include "messageimpl.h"
 #include "uassert.h"
 #include "unicode/localpointer.h"
@@ -77,8 +78,7 @@ TrimWhiteSpace(const UChar *s, int32_t &length) {
 
 // Copied from msgfmt.cpp
 int32_t
-FindKeyword(const UnicodeString& s,
-            const UChar * const *list)
+FindKeyword(const UnicodeString& s, const UChar * const *list, size_t listLen)
 {
     if (s.isEmpty()) {
         return 0; // default
@@ -90,7 +90,7 @@ FindKeyword(const UnicodeString& s,
     // Trims the space characters and turns all characters
     // in s to lower case.
     buffer.toLower("");
-    for (int32_t i = 0; list[i]; ++i) {
+    for (size_t i = 0; i < listLen; ++i) {
         if (!buffer.compare(list[i], u_strlen(list[i]))) {
             return i;
         }
@@ -144,8 +144,17 @@ class FormatOperation {
  public:
     FormatOperation(const Locale& locale,
                     const MessagePattern& msgPattern,
-                    const FormatProvider& formatProvider) :
-            locale(locale), msgPattern(msgPattern), formatProvider(formatProvider) {
+                    const NumberFormatProvider& numberFormatProvider,
+                    const DateTimeFormatProvider& dateTimeFormatProvider,
+                    const RuleBasedNumberFormatProvider& ruleBasedNumberFormatProvider,
+                    const PluralFormatProvider& pluralFormatProvider) :
+            locale(locale),
+            msgPattern(msgPattern),
+            numberFormatProvider(numberFormatProvider),
+            dateTimeFormatProvider(dateTimeFormatProvider),
+            ruleBasedNumberFormatProvider(ruleBasedNumberFormatProvider),
+            pluralFormatProvider(pluralFormatProvider)
+    {
     }
 
     FormatOperation(const FormatOperation& other) = delete;
@@ -154,7 +163,7 @@ class FormatOperation {
     FormatOperation &operator=(FormatOperation&&) = delete;
 
     void format(int32_t msgStart,
-                const FormatProvider::PluralSelectorContext *plNumber,
+                const PluralFormatProvider::SelectorContext *plNumber,
                 const Formattable* arguments,
                 const UnicodeString* argumentNames,
                 int32_t cnt,
@@ -162,7 +171,7 @@ class FormatOperation {
                 UErrorCode& success) const;
 private:
     void formatComplexSubMessage(int32_t msgStart,
-                                 const FormatProvider::PluralSelectorContext *plNumber,
+                                 const PluralFormatProvider::SelectorContext *plNumber,
                                  const Formattable* arguments,
                                  const UnicodeString *argumentNames,
                                  int32_t cnt,
@@ -174,12 +183,15 @@ private:
                                           UErrorCode& ec) const;
     const Locale& locale;
     const MessagePattern& msgPattern;
-    const FormatProvider& formatProvider;
+    const NumberFormatProvider& numberFormatProvider;
+    const DateTimeFormatProvider& dateTimeFormatProvider;
+    const RuleBasedNumberFormatProvider& ruleBasedNumberFormatProvider;
+    const PluralFormatProvider& pluralFormatProvider;
 };
 
 void FormatOperation::format(
     int32_t msgStart,
-    const FormatProvider::PluralSelectorContext *plNumber,
+    const PluralFormatProvider::SelectorContext *plNumber,
     const Formattable* arguments,
     const UnicodeString *argumentNames,
     int32_t cnt,
@@ -207,7 +219,7 @@ void FormatOperation::format(
                     plNumber->formatter,
                     plNumber->number, plNumber->numberString, appendTo, success);
             } else {
-                const Format* nf = formatProvider.numberFormat(FormatProvider::TYPE_NUMBER, locale, success);
+                const Format* nf = numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, success);
                 if (U_SUCCESS(success)) {
                     nf->format(plNumber->number, appendTo, success);
                 }
@@ -265,12 +277,12 @@ void FormatOperation::format(
             switch (argType) {
                 case UMSGPAT_ARG_TYPE_NONE: {
                     if (arg->isNumeric()) {
-                        const Format* format = formatProvider.numberFormat(FormatProvider::TYPE_NUMBER, locale, success);
+                        const Format* format = numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, success);
                         if (format) {
                             format->format(*arg, appendTo, success);
                         }
                     } else if (arg->getType() == Formattable::kDate) {
-                        const Format* format = formatProvider.dateTimeFormat(FormatProvider::TYPE_DATE, FormatProvider::STYLE_SHORT, locale, success);
+                        const Format* format = dateTimeFormatProvider.dateTimeFormat(DateTimeFormatProvider::TYPE_DATE, DateTimeFormatProvider::STYLE_SHORT, locale, success);
                         if (format) {
                             format->format(*arg, appendTo, success);
                         }
@@ -311,9 +323,9 @@ void FormatOperation::format(
                         success = U_ILLEGAL_ARGUMENT_ERROR;
                         return;
                     }
-                    const FormatProvider::PluralSelector* selector =
-                            formatProvider.pluralSelector(
-                                argType == UMSGPAT_ARG_TYPE_PLURAL ? FormatProvider::TYPE_PLURAL : FormatProvider::TYPE_SELECTORDINAL,
+                    const PluralFormatProvider::Selector* selector =
+                            pluralFormatProvider.pluralSelector(
+                                argType == UMSGPAT_ARG_TYPE_PLURAL ? PluralFormatProvider::TYPE_PLURAL : PluralFormatProvider::TYPE_SELECTORDINAL,
                                 success);
                     if (U_FAILURE(success)) {
                         return;
@@ -321,15 +333,15 @@ void FormatOperation::format(
                     // We must use the Formattable::getDouble() variant with the UErrorCode parameter
                     // because only this one converts non-double numeric types to double.
                     double offset = msgPattern.getPluralOffset(i);
-                    FormatProvider::PluralSelectorContext context(i, argName, *arg, offset, success);
-                    int32_t subMsgStart = formatProvider.pluralFindSubMessage(
+                    PluralFormatProvider::SelectorContext context(i, argName, *arg, offset, success);
+                    int32_t subMsgStart = pluralFormatProvider.findSubMessage(
                         msgPattern, i, *selector, &context, arg->getDouble(success), success);
                     formatComplexSubMessage(subMsgStart, &context, arguments, argumentNames,
                                             cnt, appendTo, success);
                     break;
                 }
                 case UMSGPAT_ARG_TYPE_SELECT: {
-                    int32_t subMsgStart = formatProvider.selectFindSubMessage(msgPattern, i, arg->getString(success), success);
+                    int32_t subMsgStart = pluralFormatProvider.selectFindSubMessage(msgPattern, i, arg->getString(success), success);
                     if (U_FAILURE(success)) {
                         return;
                     }
@@ -345,7 +357,7 @@ void FormatOperation::format(
 }
 
 void FormatOperation::formatComplexSubMessage(int32_t msgStart,
-                                              const FormatProvider::PluralSelectorContext *plNumber,
+                                              const PluralFormatProvider::SelectorContext *plNumber,
                                               const Formattable* arguments,
                                               const UnicodeString *argumentNames,
                                               int32_t cnt,
@@ -382,7 +394,7 @@ void FormatOperation::formatComplexSubMessage(int32_t msgStart,
                     // number-offset was already formatted.
                     sb.append(plNumber->numberString);
                 } else {
-                    const Format* format = formatProvider.numberFormat(FormatProvider::TYPE_NUMBER, locale, success);
+                    const Format* format = numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, success);
                     if (format) {
                         sb.append(format->format(plNumber->number, sb, success));
                     }
@@ -401,7 +413,7 @@ void FormatOperation::formatComplexSubMessage(int32_t msgStart,
     if (sb.indexOf(u'{') >= 0) {
         MessagePattern subMessagePattern(UMSGPAT_APOS_DOUBLE_REQUIRED, success);
         subMessagePattern.parse(sb, /*parseError=*/nullptr, success);
-        FormatOperation subFormatOperation(locale, subMessagePattern, formatProvider);
+        FormatOperation subFormatOperation(locale, subMessagePattern, numberFormatProvider, dateTimeFormatProvider, ruleBasedNumberFormatProvider, pluralFormatProvider);
         subFormatOperation.format(/*msgStart=*/0, /*plNumber=*/nullptr, arguments, argumentNames, cnt, appendTo, success);
     } else {
         appendTo.append(sb);
@@ -423,7 +435,6 @@ const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type
         u"spellout",
         u"ordinal",
         u"duration",
-        nullptr,
     };
 
     // NumberFormat
@@ -432,7 +443,6 @@ const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type
         u"currency",
         u"percent",
         u"integer",
-        nullptr,
     };
 
     // DateFormat
@@ -442,37 +452,36 @@ const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type
         u"medium",
         u"long",
         u"full",
-        nullptr,
     };
 
-    constexpr FormatProvider::DateTimeStyle DATE_STYLES[] = {
-      FormatProvider::STYLE_DEFAULT,
-      FormatProvider::STYLE_SHORT,
-      FormatProvider::STYLE_MEDIUM,
-      FormatProvider::STYLE_LONG,
-      FormatProvider::STYLE_FULL,
+    constexpr DateTimeFormatProvider::DateTimeStyle DATE_STYLES[] = {
+      DateTimeFormatProvider::STYLE_DEFAULT,
+      DateTimeFormatProvider::STYLE_SHORT,
+      DateTimeFormatProvider::STYLE_MEDIUM,
+      DateTimeFormatProvider::STYLE_LONG,
+      DateTimeFormatProvider::STYLE_FULL,
     };
 
-    switch (int32_t typeID = FindKeyword(type, TYPE_IDS)) {
+    switch (int32_t typeID = FindKeyword(type, TYPE_IDS, UPRV_LENGTHOF(TYPE_IDS))) {
         case 0: // number
-            switch (FindKeyword(style, NUMBER_STYLE_IDS)) {
+            switch (FindKeyword(style, NUMBER_STYLE_IDS, UPRV_LENGTHOF(NUMBER_STYLE_IDS))) {
                 case 0: // default
-                    return formatProvider.numberFormat(FormatProvider::TYPE_NUMBER, locale, ec);
+                    return numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, ec);
                 case 1: // currency
-                    return formatProvider.numberFormat(FormatProvider::TYPE_CURRENCY, locale, ec);
+                    return numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_CURRENCY, locale, ec);
                 case 2: // percent
-                    return formatProvider.numberFormat(FormatProvider::TYPE_PERCENT, locale, ec);
+                    return numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_PERCENT, locale, ec);
                 case 3: // integer
-                    return formatProvider.numberFormat(FormatProvider::TYPE_INTEGER, locale, ec);
+                    return numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_INTEGER, locale, ec);
                 default: { // pattern or skeleton
                     int32_t firstNonSpace = SkipWhiteSpace(style, 0);
                     if (style.compare(firstNonSpace, 2, u"::", 0, 2) == 0) {
                         // Skeleton
                         UnicodeString skeleton = style.tempSubString(firstNonSpace + 2);
-                        return formatProvider.numberFormatForSkeleton(skeleton, locale, ec);
+                        return numberFormatProvider.numberFormatForSkeleton(skeleton, locale, ec);
                     }
                     // Pattern
-                    return formatProvider.decimalFormatWithPattern(style, locale, ec);
+                    return numberFormatProvider.decimalFormatWithPattern(style, locale, ec);
                 }
             }
             break;
@@ -482,23 +491,23 @@ const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type
             if (style.compare(firstNonSpace, 2, u"::", 0, 2) == 0) {
                 // Skeleton
                 UnicodeString skeleton = style.tempSubString(firstNonSpace + 2);
-                return formatProvider.dateTimeFormatForSkeleton(skeleton, locale, ec);
+                return dateTimeFormatProvider.dateTimeFormatForSkeleton(skeleton, locale, ec);
             }
             // Pattern
-            int32_t styleID = FindKeyword(style, DATE_STYLE_IDS);
-            FormatProvider::DateTimeStyle dateStyle = (styleID >= 0) ? DATE_STYLES[styleID] : FormatProvider::STYLE_DEFAULT;
+            int32_t styleID = FindKeyword(style, DATE_STYLE_IDS, UPRV_LENGTHOF(DATE_STYLE_IDS));
+            DateTimeFormatProvider::DateTimeStyle dateStyle = (styleID >= 0) ? DATE_STYLES[styleID] : DateTimeFormatProvider::STYLE_DEFAULT;
 
             if (typeID == 1) {
-                return formatProvider.dateTimeFormat(FormatProvider::TYPE_DATE, dateStyle, locale, ec);
+                return dateTimeFormatProvider.dateTimeFormat(DateTimeFormatProvider::TYPE_DATE, dateStyle, locale, ec);
             }
-            return formatProvider.dateTimeFormat(FormatProvider::TYPE_TIME, dateStyle, locale, ec);
+            return dateTimeFormatProvider.dateTimeFormat(DateTimeFormatProvider::TYPE_TIME, dateStyle, locale, ec);
         }
         case 3: // spellout
-            return formatProvider.ruleBasedNumberFormat(FormatProvider::TYPE_SPELLOUT, locale, style, ec);
+            return ruleBasedNumberFormatProvider.ruleBasedNumberFormat(RuleBasedNumberFormatProvider::TYPE_SPELLOUT, locale, style, ec);
         case 4: // ordinal
-            return formatProvider.ruleBasedNumberFormat(FormatProvider::TYPE_ORDINAL, locale, style, ec);
+            return ruleBasedNumberFormatProvider.ruleBasedNumberFormat(RuleBasedNumberFormatProvider::TYPE_ORDINAL, locale, style, ec);
         case 5: // duration
-            return formatProvider.ruleBasedNumberFormat(FormatProvider::TYPE_DURATION, locale, style, ec);
+            return ruleBasedNumberFormatProvider.ruleBasedNumberFormat(RuleBasedNumberFormatProvider::TYPE_DURATION, locale, style, ec);
     }
 
     ec = U_ILLEGAL_ARGUMENT_ERROR;
@@ -515,18 +524,26 @@ MessageFormatNano::MessageFormatNano(const UnicodeString& pattern,
                                      UErrorCode& success)
         : locale(newLocale),
           msgPattern(pattern, &parseError, success),
-          formatProvider(new FormatProvider())
-{
+          numberFormatProvider(new NumberFormatProvider()),
+          dateTimeFormatProvider(new DateTimeFormatProvider()),
+          ruleBasedNumberFormatProvider(new RuleBasedNumberFormatProvider()),
+          pluralFormatProvider(new PluralFormatProvider()) {
 }
 
 MessageFormatNano::MessageFormatNano(const UnicodeString& pattern,
                                      const Locale& newLocale,
-                                     LocalPointer<const FormatProvider> formatProvider,
+                                     LocalPointer<const NumberFormatProvider> numberFormatProvider,
+                                     LocalPointer<const DateTimeFormatProvider> dateTimeFormatProvider,
+                                     LocalPointer<const RuleBasedNumberFormatProvider> ruleBasedNumberFormatProvider,
+                                     LocalPointer<const PluralFormatProvider> pluralFormatProvider,
                                      UParseError& parseError,
-                                     UErrorCode& success)
+                                     UErrorCode& status)
         : locale(newLocale),
-          msgPattern(pattern, &parseError, success),
-          formatProvider(std::move(formatProvider))
+          msgPattern(pattern, &parseError, status),
+          numberFormatProvider(std::move(numberFormatProvider)),
+          dateTimeFormatProvider(std::move(dateTimeFormatProvider)),
+          ruleBasedNumberFormatProvider(std::move(ruleBasedNumberFormatProvider)),
+          pluralFormatProvider(std::move(pluralFormatProvider))
 {
 }
 
@@ -535,7 +552,7 @@ UnicodeString& MessageFormatNano::format(const UnicodeString* argumentNames,
                                          int32_t cnt,
                                          UnicodeString& appendTo,
                                          UErrorCode& success) const {
-    FormatOperation formatOperation(locale, msgPattern, *formatProvider);
+    FormatOperation formatOperation(locale, msgPattern, *numberFormatProvider, *dateTimeFormatProvider, *ruleBasedNumberFormatProvider, *pluralFormatProvider);
     formatOperation.format(/*msgStart=*/0, /*plNumber=*/nullptr, arguments, argumentNames, cnt, appendTo, success);
     return appendTo;
 }

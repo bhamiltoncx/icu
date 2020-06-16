@@ -24,7 +24,7 @@
 
 U_NAMESPACE_BEGIN
 
-class U_I18N_API FormatProvider {
+class U_I18N_API NumberFormatProvider {
 public:
     enum NumberFormatType {
         TYPE_NUMBER,
@@ -33,38 +33,13 @@ public:
         TYPE_INTEGER,
     };
 
-    enum RuleBasedNumberFormatType {
-        TYPE_SPELLOUT,
-        TYPE_DURATION,
-        TYPE_ORDINAL,
-    };
+    NumberFormatProvider() = default;
+    NumberFormatProvider(const NumberFormatProvider&) = delete;
+    NumberFormatProvider(NumberFormatProvider&&) = delete;
+    NumberFormatProvider &operator=(const NumberFormatProvider&) = delete;
+    NumberFormatProvider &operator=(NumberFormatProvider&&) = delete;
 
-    enum DateTimeType {
-        TYPE_TIME,
-        TYPE_DATE,
-        TYPE_DATETIME,
-    };
-
-    enum DateTimeStyle {
-        STYLE_DEFAULT,
-        STYLE_SHORT,
-        STYLE_MEDIUM,
-        STYLE_LONG,
-        STYLE_FULL,
-    };
-
-    enum PluralType {
-        TYPE_PLURAL,
-        TYPE_SELECTORDINAL,
-    };
-
-    FormatProvider() = default;
-    FormatProvider(const FormatProvider&) = delete;
-    FormatProvider(FormatProvider&&) = delete;
-    FormatProvider &operator=(const FormatProvider&) = delete;
-    FormatProvider &operator=(FormatProvider&&) = delete;
-
-    virtual ~FormatProvider() {}
+    virtual ~NumberFormatProvider() {}
 
     virtual const Format* numberFormat(NumberFormatType /*type*/, const Locale& /*locale*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
@@ -80,6 +55,31 @@ public:
         status = U_UNSUPPORTED_ERROR;
         return nullptr;
     }
+};
+
+class U_I18N_API DateTimeFormatProvider {
+public:
+    DateTimeFormatProvider() = default;
+    DateTimeFormatProvider(const DateTimeFormatProvider&) = delete;
+    DateTimeFormatProvider(DateTimeFormatProvider&&) = delete;
+    DateTimeFormatProvider &operator=(const DateTimeFormatProvider&) = delete;
+    DateTimeFormatProvider &operator=(DateTimeFormatProvider&&) = delete;
+
+    virtual ~DateTimeFormatProvider() {}
+
+    enum DateTimeType {
+        TYPE_TIME,
+        TYPE_DATE,
+        TYPE_DATETIME,
+    };
+
+    enum DateTimeStyle {
+        STYLE_DEFAULT,
+        STYLE_SHORT,
+        STYLE_MEDIUM,
+        STYLE_LONG,
+        STYLE_FULL,
+    };
 
     virtual const Format* dateTimeFormatForSkeleton(const UnicodeString& /*skeleton*/, const Locale& /*locale*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
@@ -90,30 +90,63 @@ public:
         status = U_UNSUPPORTED_ERROR;
         return nullptr;
     }
+};
+
+class U_I18N_API RuleBasedNumberFormatProvider {
+public:
+    RuleBasedNumberFormatProvider() = default;
+    RuleBasedNumberFormatProvider(const RuleBasedNumberFormatProvider&) = delete;
+    RuleBasedNumberFormatProvider(RuleBasedNumberFormatProvider&&) = delete;
+    RuleBasedNumberFormatProvider &operator=(const RuleBasedNumberFormatProvider&) = delete;
+    RuleBasedNumberFormatProvider &operator=(RuleBasedNumberFormatProvider&&) = delete;
+
+    virtual ~RuleBasedNumberFormatProvider() {}
+
+    enum RuleBasedNumberFormatType {
+        TYPE_SPELLOUT,
+        TYPE_DURATION,
+        TYPE_ORDINAL,
+    };
 
     virtual const Format* ruleBasedNumberFormat(RuleBasedNumberFormatType /*type*/, const Locale& /*locale*/, const UnicodeString& /*defaultRuleSet*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
         return nullptr;
     }
+};
 
-    class PluralSelector {
+class U_I18N_API PluralFormatProvider {
+public:
+    PluralFormatProvider() = default;
+    PluralFormatProvider(const PluralFormatProvider&) = delete;
+    PluralFormatProvider(PluralFormatProvider&&) = delete;
+    PluralFormatProvider &operator=(const PluralFormatProvider&) = delete;
+    PluralFormatProvider &operator=(PluralFormatProvider&&) = delete;
+
+    virtual ~PluralFormatProvider() {}
+
+    enum PluralType {
+        TYPE_PLURAL,
+        TYPE_SELECTORDINAL,
+    };
+
+    class Selector {
     public:
-        PluralSelector() = default;
-        PluralSelector(const PluralSelector&) = delete;
-        PluralSelector(PluralSelector&&) = delete;
-        PluralSelector &operator=(const PluralSelector&) = delete;
-        PluralSelector &operator=(PluralSelector&&) = delete;
-        
-        virtual ~PluralSelector();
+        Selector() = default;
+        Selector(const Selector&) = delete;
+        Selector(Selector&&) = delete;
+        Selector &operator=(const Selector&) = delete;
+        Selector &operator=(Selector&&) = delete;
+
+        virtual ~Selector();
         virtual UnicodeString select(void *ctx, double number, UErrorCode& ec) const = 0;
     };
 
-    virtual const PluralSelector* pluralSelector(PluralType /*pluralType*/, UErrorCode& status) const {
+    virtual const Selector* pluralSelector(PluralType /*pluralType*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
         return nullptr;
     }
 
-    virtual int32_t pluralFindSubMessage(const MessagePattern& /*pattern*/, int32_t /*partIndex*/, const PluralSelector& /*selectorProvider*/, void* /*context*/, double /*number*/, UErrorCode& status) const {
+    virtual int32_t findSubMessage(const MessagePattern& /*pattern*/, int32_t /*partIndex*/, const Selector& /*selector*/, void* /*context*/, double /*number*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
         return -1;
     }
@@ -123,8 +156,8 @@ public:
         return -1;
     }
 
-    struct PluralSelectorContext {
-        PluralSelectorContext(
+    struct SelectorContext {
+        SelectorContext(
             int32_t start, const UnicodeString &name,
             const Formattable &num, double off, UErrorCode &errorCode)
                 : startIndex(start), argName(name), offset(off),
@@ -139,10 +172,10 @@ public:
             }
         }
 
-        PluralSelectorContext(const PluralSelectorContext& other) = delete;
-        PluralSelectorContext(PluralSelectorContext&&) = delete;
-        PluralSelectorContext &operator=(const PluralSelectorContext&) = delete;
-        PluralSelectorContext &operator=(PluralSelectorContext&&) = delete;
+        SelectorContext(const SelectorContext& other) = delete;
+        SelectorContext(SelectorContext&&) = delete;
+        SelectorContext &operator=(const SelectorContext&) = delete;
+        SelectorContext &operator=(SelectorContext&&) = delete;
 
         // Input values for plural selection with decimals.
         int32_t startIndex;
@@ -184,9 +217,10 @@ public:
      * Constructs a new MessageFormatNano using the given pattern and locale.
      * @param pattern   Pattern used to construct object.
      * @param locale The locale to use for formatting dates and numbers.
-     * @param formatProvider Provider and cache for formats. By default,
-     *                       supports {@link ChoiceFormat}, {@link PluralFormat},
-     *                       and {@link SelectFormat}.
+     * @param numberFormatProvider Provider and cache for number formats.
+     * @param dateTimeFormatProvider Provider and cache for date and time formats.
+     * @param ruleBasedNumberFormatProvider Provider and cache for rule-based message formats.
+     * @param pluralFormatProvider Provider and cache for number formats.
      * @param parseError Struct to receive information on the position
      *                   of an error within the pattern.
      * @param status    Input/output error code.  If the
@@ -194,7 +228,10 @@ public:
      */
     MessageFormatNano(const UnicodeString& pattern,
                       const Locale& locale,
-                      LocalPointer<const FormatProvider> formatProvider,
+                      LocalPointer<const NumberFormatProvider> numberFormatProvider,
+                      LocalPointer<const DateTimeFormatProvider> dateTimeFormatProvider,
+                      LocalPointer<const RuleBasedNumberFormatProvider> ruleBasedNumberFormatProvider,
+                      LocalPointer<const PluralFormatProvider> pluralFormatProvider,
                       UParseError& parseError,
                       UErrorCode& status);
 
@@ -221,16 +258,19 @@ public:
                           int32_t count,
                           UnicodeString& appendTo,
                           UErrorCode& status) const;
-    
+
     MessageFormatNano(const MessageFormatNano&) = delete;
     MessageFormatNano(MessageFormatNano&&) = delete;
     MessageFormatNano &operator=(const MessageFormatNano&) = delete;
     MessageFormatNano &operator=(MessageFormatNano&&) = delete;
-    
+
 private:
     const Locale locale;
     const MessagePattern msgPattern;
-    const LocalPointer<const FormatProvider> formatProvider;
+    const LocalPointer<const NumberFormatProvider> numberFormatProvider;
+    const LocalPointer<const DateTimeFormatProvider> dateTimeFormatProvider;
+    const LocalPointer<const RuleBasedNumberFormatProvider> ruleBasedNumberFormatProvider;
+    const LocalPointer<const PluralFormatProvider> pluralFormatProvider;
 };
 
 U_NAMESPACE_END

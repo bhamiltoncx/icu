@@ -594,6 +594,7 @@ private:
 
     friend class MessageFormat;
     friend class NFRule;
+    friend class TestPluralFormatProvider;
 };
 
 U_NAMESPACE_END
