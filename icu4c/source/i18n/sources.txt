@@ -93,6 +93,7 @@ measunit_extra.cpp
 measure.cpp
 msgfmt.cpp
 msgfmtnano.cpp
+msgfmtnano_numberprovider.cpp
 msgfmtnano_pluralprovider.cpp
 name2uni.cpp
 nfrs.cpp

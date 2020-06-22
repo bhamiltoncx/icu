@@ -154,18 +154,22 @@ public:
     struct U_I18N_API SelectorContext {
         SelectorContext(
             MessagePattern msgPattern, const NumberFormatProvider& numberFormatProvider,
+            Locale locale,
             int32_t start, const UnicodeString &name,
             const Formattable &num, double off, UErrorCode &errorCode)
                 : msgPattern(msgPattern), numberFormatProvider(numberFormatProvider),
-                startIndex(start), argName(name), offset(off),
+          locale(locale),
+          startIndex(start), argName(name), offset(off),
                   numberArgIndex(-1), formatter(NULL), forReplaceNumber(FALSE) {
             // number needs to be set even when select() is not called.
             // Keep it as a Number/Formattable:
             // For format() methods, and to preserve information (e.g., BigDecimal).
             if(off == 0) {
                 number = num;
+                fprintf(stderr, "SelectorContext offset zero, number=%f\n", number.getDouble(errorCode));
             } else {
                 number = num.getDouble(errorCode) - off;
+                fprintf(stderr, "SelectorContext offset %f, number=%f\n", off, number.getDouble(errorCode));
             }
         }
 
@@ -176,6 +180,7 @@ public:
 
         const MessagePattern msgPattern;
         const NumberFormatProvider& numberFormatProvider;
+        const Locale locale;
 
         // Input values for plural selection with decimals.
         int32_t startIndex;
