@@ -102,9 +102,9 @@ const Format* NumberFormatProviderImpl::numberFormat(NumberFormatType type, cons
 const Format* NumberFormatProviderImpl::numberFormatForSkeleton(const UnicodeString& skeleton, const Locale& locale, UErrorCode& status) const {
   std::string key("skeleton|");
   StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
-  locale.toLanguageTag(keySink, status);
-  key.append("|");
   skeleton.toUTF8(keySink);
+  key.append("|");
+  locale.toLanguageTag(keySink, status);
   UnicodeString ukey(UnicodeString::fromUTF8(StringPiece(key)));
   {
     Mutex lock(&gMutex);

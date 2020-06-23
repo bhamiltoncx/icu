@@ -440,7 +440,7 @@ void FormatOperation::format(
                             format->format(*arg, appendTo, success);
                         }
                     } else if (arg->getType() == Formattable::kDate) {
-                        const Format* format = dateTimeFormatProvider.dateTimeFormat(DateTimeFormatProvider::TYPE_DATE, DateTimeFormatProvider::STYLE_SHORT, locale, success);
+                        const Format* format = dateTimeFormatProvider.dateTimeFormat(/*dateStyle=*/DateTimeFormatProvider::STYLE_SHORT, /*timeStyle=*/DateTimeFormatProvider::STYLE_SHORT, locale, success);
                         if (format) {
                             format->format(*arg, appendTo, success);
                         }
@@ -658,12 +658,12 @@ const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type
             }
             // Pattern
             int32_t styleID = FindKeyword(style, DATE_STYLE_IDS, UPRV_LENGTHOF(DATE_STYLE_IDS));
-            DateTimeFormatProvider::DateTimeStyle dateStyle = (styleID >= 0) ? DATE_STYLES[styleID] : DateTimeFormatProvider::STYLE_DEFAULT;
+            DateTimeFormatProvider::DateTimeStyle dateTimeStyle = (styleID >= 0) ? DATE_STYLES[styleID] : DateTimeFormatProvider::STYLE_DEFAULT;
 
             if (typeID == 1) {
-                return dateTimeFormatProvider.dateTimeFormat(DateTimeFormatProvider::TYPE_DATE, dateStyle, locale, ec);
+                return dateTimeFormatProvider.dateTimeFormat(/*dateStyle=*/dateTimeStyle, /*timeStyle=*/DateTimeFormatProvider::STYLE_NONE, locale, ec);
             }
-            return dateTimeFormatProvider.dateTimeFormat(DateTimeFormatProvider::TYPE_TIME, dateStyle, locale, ec);
+            return dateTimeFormatProvider.dateTimeFormat(/*dateStyle=*/DateTimeFormatProvider::STYLE_NONE, /*timeStyle=*/dateTimeStyle, locale, ec);
         }
         case 3: // spellout
             return ruleBasedNumberFormatProvider.ruleBasedNumberFormat(RuleBasedNumberFormatProvider::TYPE_SPELLOUT, locale, style, ec);

@@ -67,13 +67,8 @@ public:
 
     virtual ~DateTimeFormatProvider() {}
 
-    enum DateTimeType {
-        TYPE_TIME,
-        TYPE_DATE,
-        TYPE_DATETIME,
-    };
-
     enum DateTimeStyle {
+        STYLE_NONE,
         STYLE_DEFAULT,
         STYLE_SHORT,
         STYLE_MEDIUM,
@@ -81,12 +76,12 @@ public:
         STYLE_FULL,
     };
 
-    virtual const Format* dateTimeFormatForSkeleton(const UnicodeString& /*skeleton*/, const Locale& /*locale*/, UErrorCode& status) const {
+    virtual const Format* dateTimeFormat(DateTimeStyle /*dateStyle*/, DateTimeStyle /*timeStyle*/, const Locale& /*locale*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
         return nullptr;
     }
-
-    virtual const Format* dateTimeFormat(DateTimeType /*type*/, DateTimeStyle /*style*/, const Locale& /*locale*/, UErrorCode& status) const {
+    
+    virtual const Format* dateTimeFormatForSkeleton(const UnicodeString& /*skeleton*/, const Locale& /*locale*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
         return nullptr;
     }
@@ -161,10 +156,8 @@ public:
             // For format() methods, and to preserve information (e.g., BigDecimal).
             if(off == 0) {
                 number = num;
-                fprintf(stderr, "SelectorContext offset zero, number=%f\n", number.getDouble(errorCode));
             } else {
                 number = num.getDouble(errorCode) - off;
-                fprintf(stderr, "SelectorContext offset %f, number=%f\n", off, number.getDouble(errorCode));
             }
         }
 
