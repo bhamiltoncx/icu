@@ -19,7 +19,7 @@ U_CDECL_BEGIN
 
 static void U_CALLCONV
 deleteFormat(void *obj) {
-    delete (icu::Format *) obj;
+    delete static_cast<icu::Format *>(obj);
 }
 
 U_CDECL_END

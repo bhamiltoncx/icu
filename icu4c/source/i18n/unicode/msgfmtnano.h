@@ -146,11 +146,6 @@ public:
         return nullptr;
     }
 
-    virtual int32_t selectFindSubMessage(const MessagePattern& /*pattern*/, int32_t /*partIndex*/, const UnicodeString& /*keyword*/, UErrorCode& status) const {
-        status = U_UNSUPPORTED_ERROR;
-        return -1;
-    }
-
     struct U_I18N_API SelectorContext {
         SelectorContext(
             MessagePattern msgPattern, const NumberFormatProvider& numberFormatProvider,

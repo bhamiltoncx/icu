@@ -5,6 +5,7 @@
 
 #if !UCONFIG_NO_FORMATTING
 
+#include "hash.h"
 #include "messageimpl.h"
 #include "mutex.h"
 #include "number_decimalquantity.h"
@@ -19,11 +20,22 @@
 #include "unicode/ustring.h"
 #include "unicode/upluralrules.h"
 
+//#define U_DEBUG_MSGFMTNANO 1
+
+U_CDECL_BEGIN
+
+static void U_CALLCONV
+deletePluralRules(void *obj) {
+    delete static_cast<icu::PluralRules *>(obj);
+}
+
+U_CDECL_END
+
 U_NAMESPACE_BEGIN
 
 namespace {
 
-// Protects access to |rules| and |locale|.
+// Protects access to |rules|.
 UMutex gMutex;
 
 int32_t findOtherSubMessage(const MessagePattern& msgPattern, int32_t partIndex) {
@@ -80,7 +92,9 @@ findFirstPluralNumberArg(const MessagePattern& msgPattern, int32_t msgStart, con
 
 class PluralSelectorImpl : public PluralFormatProvider::Selector {
 public:
-    PluralSelectorImpl(UPluralType pluralType) : pluralType(pluralType) { }
+    PluralSelectorImpl(UPluralType pluralType, UErrorCode& status) : pluralType(pluralType), pluralRules(/*ignoreKeycase=*/FALSE, status) {
+        pluralRules.setValueDeleter(deletePluralRules);
+    }
     PluralSelectorImpl &operator=(PluralSelectorImpl&&) = default;
     PluralSelectorImpl(PluralSelectorImpl&&) = default;
     PluralSelectorImpl &operator=(const PluralSelectorImpl&) = delete;
@@ -88,49 +102,55 @@ public:
     UnicodeString select(void *ctx, double number, UErrorCode& ec) const;
 
 private:
-    const PluralRules* rulesForLocaleLocked(const Locale& rulesLocale, UErrorCode& ec) const;
+    const PluralRules* pluralRulesForLocale(const Locale& locale, UErrorCode& ec) const;
     const UPluralType pluralType;
-    mutable Locale locale;
-    mutable LocalPointer<PluralRules> rules;
+    mutable Hashtable pluralRules;
 };
 
 class PluralFormatProviderImpl : public PluralFormatProvider {
 public:
-    PluralFormatProviderImpl() :
-            cardinalSelector(new PluralSelectorImpl(UPLURAL_TYPE_CARDINAL)),
-            ordinalSelector(new PluralSelectorImpl(UPLURAL_TYPE_ORDINAL)) { }
+    PluralFormatProviderImpl(UErrorCode& status) :
+            cardinalSelector(new PluralSelectorImpl(UPLURAL_TYPE_CARDINAL, status)),
+            ordinalSelector(new PluralSelectorImpl(UPLURAL_TYPE_ORDINAL, status)) { }
     PluralFormatProviderImpl &operator=(PluralFormatProviderImpl&&) = default;
     PluralFormatProviderImpl(PluralFormatProviderImpl&&) = default;
     PluralFormatProviderImpl &operator=(const PluralFormatProviderImpl&) = delete;
     PluralFormatProviderImpl(const PluralFormatProviderImpl&) = delete;
 
-    const PluralFormatProvider::Selector* pluralSelector(PluralFormatProvider::PluralType /*pluralType*/, UErrorCode& status) const;
-    int32_t selectFindSubMessage(const MessagePattern& /*pattern*/, int32_t /*partIndex*/, const UnicodeString& /*keyword*/, UErrorCode& status) const;
+    const PluralFormatProvider::Selector* pluralSelector(PluralFormatProvider::PluralType pluralType, UErrorCode& status) const;
 
 private:
     const LocalPointer<const PluralFormatProvider::Selector> cardinalSelector;
     const LocalPointer<const PluralFormatProvider::Selector> ordinalSelector;
 };
 
-const PluralRules* PluralSelectorImpl::rulesForLocaleLocked(const Locale& rulesLocale, UErrorCode& ec) const {
-  // gMutex must be locked before invoking this.
-  if (rules.isValid() && locale == rulesLocale) {
-    return rules.getAlias();
-  }
-  locale = rulesLocale;
-  rules.adoptInstead(PluralRules::forLocale(rulesLocale, pluralType, ec));
-  if (U_FAILURE(ec)) {
-    return nullptr;
-  }
-  return rules.getAlias();
+const PluralRules* PluralSelectorImpl::pluralRulesForLocale(const Locale& locale, UErrorCode& ec) const {
+    if (U_FAILURE(ec)) {
+        return nullptr;
+    }
+    std::string key;
+    StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
+    locale.toLanguageTag(keySink, ec);
+    UnicodeString ukey(key.data(), key.length(), US_INV);
+    {
+        Mutex lock(&gMutex);
+        PluralRules* rules = static_cast<PluralRules*>(pluralRules.get(ukey));
+        if (!rules) {
+            rules = PluralRules::forLocale(locale, pluralType, ec);
+            pluralRules.put(ukey, rules, ec);
+        }
+        return rules;
+    }
 }
 
 UnicodeString PluralSelectorImpl::select(void *ctx, double number, UErrorCode& ec) const {
+#ifdef U_DEBUG_MSGFMTNANO
     fprintf(stderr, "PluralSelectorImpl::select number=%f ec=%s\n", number, u_errorName(ec));
+#endif  // U_DEBUG_MSGFMTNANO
+    UnicodeString other(u"other", 5);
     if (U_FAILURE(ec)) {
-        return UnicodeString(u"other", 5);
+        return other;
     }
-    fprintf(stderr, "ctx=%p\n", ctx);
     PluralFormatProvider::SelectorContext &context = *static_cast<PluralFormatProvider::SelectorContext *>(ctx);
     // Select a sub-message according to how the number is formatted,
     // which is specified in the selected sub-message.
@@ -138,27 +158,18 @@ UnicodeString PluralSelectorImpl::select(void *ctx, double number, UErrorCode& e
     // the number is formatted in the "other" sub-message
     // which must always be present and usually contains the number.
     // Message authors should be consistent across sub-messages.
-    fprintf(stderr, "context.number.getType -> %d, getDouble -> %f ec=%s\n", context.number.getType(), context.number.getDouble(ec), u_errorName(ec));
-    std::string s;
-    fprintf(stderr, "context.argName=%s\n", context.argName.toUTF8String(s).c_str());
-    s.clear();
     int32_t otherIndex = findOtherSubMessage(context.msgPattern, context.startIndex);
-    fprintf(stderr, "otherIndex=%d\n", otherIndex);
     context.numberArgIndex = findFirstPluralNumberArg(context.msgPattern, otherIndex, context.argName);
-    fprintf(stderr, "context.numberArgIndex=%d\n", context.numberArgIndex);
     if (!context.formatter) {
-        context.formatter = context.numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, ec);
+        context.formatter = context.numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, context.locale, ec);
         if (U_FAILURE(ec)) {
-          return UnicodeString(u"other", 5);
+            return other;
         }
-        fprintf(stderr, "context.formatter = %p ec = %s\n", context.formatter, u_errorName(ec));
         context.forReplaceNumber = TRUE;
     }
-    fprintf(stderr, "context.number.getType -> %d, getDouble -> %f\n", context.number.getType(), context.number.getDouble(ec));
     if (context.number.getDouble(ec) != number) {
-      fprintf(stderr, "ERROR: context.number.getDouble -> %f, number -> %f\n", context.number.getDouble(ec), number);
         ec = U_INTERNAL_PROGRAM_ERROR;
-        return UnicodeString(u"other", 5);
+        return other;
     }
     context.formatter->format(context.number, context.numberString, ec);
     auto* decFmt = dynamic_cast<const DecimalFormat *>(context.formatter);
@@ -166,26 +177,34 @@ UnicodeString PluralSelectorImpl::select(void *ctx, double number, UErrorCode& e
         number::impl::DecimalQuantity dq;
         decFmt->formatToDecimalQuantity(context.number, dq, ec);
         if (U_FAILURE(ec)) {
-            return UnicodeString(u"other", 5);
+            return other;
         }
         {
-          Mutex lock(&gMutex);
-          const PluralRules *rules = rulesForLocaleLocked(context.locale, ec);
+          const PluralRules *rules = pluralRulesForLocale(context.locale, ec);
           if (rules) {
-            return rules->select(dq);
+              UnicodeString result = rules->select(dq);
+#ifdef U_DEBUG_MSGFMTNANO
+              std::string s;
+              fprintf(stderr, "PluralSelectorImpl::select(DecimalQuantity) result=[%s]\n", result.toUTF8String(s).c_str());
+#endif  // U_DEBUG_MSGFMTNANO
+              return result;
           }
         }
     } else {
-      Mutex lock(&gMutex);
-      const PluralRules *rules = rulesForLocaleLocked(context.locale, ec);
+      const PluralRules *rules = pluralRulesForLocale(context.locale, ec);
       if (rules) {
-        return rules->select(number);
+          UnicodeString result = rules->select(number);
+#ifdef U_DEBUG_MSGFMTNANO
+          std::string s;
+          fprintf(stderr, "PluralSelectorImpl::select(double) result=[%s]\n", result.toUTF8String(s).c_str());
+#endif  // U_DEBUG_MSGFMTNANO
+          return result;
       }
     }
     if (U_SUCCESS(ec)) {
       ec = U_INTERNAL_PROGRAM_ERROR;
     }
-    return UnicodeString(u"other", 5);
+    return other;
 }
 
 const PluralFormatProvider::Selector* PluralFormatProviderImpl::pluralSelector(PluralFormatProvider::PluralType pluralType, UErrorCode& status) const {
@@ -202,18 +221,13 @@ const PluralFormatProvider::Selector* PluralFormatProviderImpl::pluralSelector(P
     return nullptr;
 }
 
-int32_t PluralFormatProviderImpl::selectFindSubMessage(const MessagePattern& /*pattern*/, int32_t /*partIndex*/, const UnicodeString& /*keyword*/, UErrorCode& status) const {
-    status = U_UNSUPPORTED_ERROR;
-    return -1;
-}
-
 }  // namespace
 
 LocalPointer<const PluralFormatProvider> PluralFormatProviderNano::createInstance(UErrorCode& success) {
     if (U_FAILURE(success)) {
         return LocalPointer<const PluralFormatProvider>();
     }
-    return LocalPointer<const PluralFormatProvider>(new PluralFormatProviderImpl());
+    return LocalPointer<const PluralFormatProvider>(new PluralFormatProviderImpl(success));
 }
 
 U_NAMESPACE_END

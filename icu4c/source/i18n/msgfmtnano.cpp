@@ -14,6 +14,8 @@
 #include "unicode/uloc.h"
 #include "unicode/ustring.h"
 
+//#define U_DEBUG_MSGFMTNANO 1
+
 U_NAMESPACE_BEGIN
 
 namespace {
@@ -23,22 +25,24 @@ void FormatAndAppend(const Format* formatter, const Formattable& arg,
     if (U_FAILURE(ec)) {
         return;
     }
+#ifdef U_DEBUG_MSGFMTNANO
     std::string s;
-    std::string s2;
+#endif  // U_DEBUG_MSGFMTNANO
+
     if (!argString.isEmpty()) {
-      fprintf(stderr, "FormatAndAppend argString before appendTo=[%s] argString=[%s]\n", appendTo.toUTF8String(s).c_str(), argString.toUTF8String(s2).c_str());
         appendTo.append(argString);
-        s.clear();
+#ifdef U_DEBUG_MSGFMTNANO
         fprintf(stderr, "FormatAndAppend argString after appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
+#endif  // U_DEBUG_MSGFMTNANO
     } else {
         UnicodeString formatted;
-        fprintf(stderr, "FormatAndAppend no argString before, appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
         formatter->format(arg, formatted, ec);
         if (U_SUCCESS(ec)) {
           appendTo.append(formatted);
         }
-        s.clear();
+#ifdef U_DEBUG_MSGFMTNANO
         fprintf(stderr, "FormatAndAppend no argString after, appendTo=[%s], ec=%s\n", appendTo.toUTF8String(s).c_str(), u_errorName(ec));
+#endif  // U_DEBUG_MSGFMTNANO
     }
 }
 
@@ -160,9 +164,11 @@ PluralFormatFindSubMessage(const MessagePattern& pattern, int32_t partIndex,
     if (U_FAILURE(ec)) {
         return 0;
     }
+#ifdef U_DEBUG_MSGFMTNANO
     std::string s;
     fprintf(stderr, "PluralFormatFindSubMessage pattern=%s partIndex=%d (%f), ec=%s\n", pattern.getPatternString().toUTF8String(s).c_str(), partIndex, number, u_errorName(ec));
     s.clear();
+#endif  // U_DEBUG_MSGFMTNANO
     int32_t count=pattern.countParts();
     double offset;
     const MessagePattern::Part* part=&pattern.getPart(partIndex);
@@ -243,7 +249,37 @@ PluralFormatFindSubMessage(const MessagePattern& pattern, int32_t partIndex,
         }
         partIndex=pattern.getLimitPartIndex(partIndex);
     } while(++partIndex<count);
+#ifdef U_DEBUG_MSGFMTNANO
     fprintf(stderr, "findSubMessage msgStart=%d ec=%s\n", msgStart, u_errorName(ec));
+#endif  // U_DEBUG_MSGFMTNANO
+    return msgStart;
+}
+
+// Copied from SelectFormat
+int32_t SelectFormatFindSubMessage(const MessagePattern& pattern, int32_t partIndex,
+                                   const UnicodeString& keyword, UErrorCode& ec) {
+    if (U_FAILURE(ec)) {
+        return 0;
+    }
+    UnicodeString other(u"other", 5);
+    int32_t count = pattern.countParts();
+    int32_t msgStart=0;
+    // Iterate over (ARG_SELECTOR, message) pairs until ARG_LIMIT or end of select-only pattern.
+    do {
+        const MessagePattern::Part& part=pattern.getPart(partIndex++);
+        const UMessagePatternPartType type=part.getType();
+        if(type==UMSGPAT_PART_TYPE_ARG_LIMIT) {
+            break;
+        }
+        // part is an ARG_SELECTOR followed by a message
+        if(pattern.partSubstringMatches(part, keyword)) {
+            // keyword matches
+            return partIndex;
+        } else if(msgStart==0 && pattern.partSubstringMatches(part, other)) {
+            msgStart=partIndex;
+        }
+        partIndex=pattern.getLimitPartIndex(partIndex);
+    } while(++partIndex<count);
     return msgStart;
 }
 
@@ -308,23 +344,24 @@ void FormatOperation::format(
         return;
     }
 
+#ifdef U_DEBUG_MSGFMTNANO
     std::string s;
     std::string s2;
     fprintf(stderr, "format msgStart=%d msgPattern=%s plNumber=%p cnt=%d appendTo=[%s] success=%s\n", msgStart, msgPattern.getPatternString().toUTF8String(s).c_str(), plNumber, cnt, appendTo.toUTF8String(s2).c_str(), u_errorName(success));
     s.clear();
     s2.clear();
+#endif   // U_DEBUG_MSGFMTNANO
     const UnicodeString& msgString = msgPattern.getPatternString();
     int32_t prevIndex = msgPattern.getPart(msgStart).getLimit();
     for (int32_t i = msgStart + 1; U_SUCCESS(success) ; ++i) {
-        s.clear();
         const MessagePattern::Part* part = &msgPattern.getPart(i);
         const UMessagePatternPartType type = part->getType();
         int32_t index = part->getIndex();
-        fprintf(stderr, "appendTo=[%s] append(msgString, %d, %d)\n", appendTo.toUTF8String(s).c_str(), prevIndex, index - prevIndex);
-        s.clear();
         appendTo.append(msgString, prevIndex, index - prevIndex);
+#ifdef U_DEBUG_MSGFMTNANO
         fprintf(stderr, "format i=%d partType=%d index=%d appendTo=[%s]\n", i, type, index, appendTo.toUTF8String(s).c_str());
         s.clear();
+#endif   // U_DEBUG_MSGFMTNANO
         if (type == UMSGPAT_PART_TYPE_MSG_LIMIT) {
             return;
         }
@@ -352,8 +389,6 @@ void FormatOperation::format(
         const Formattable* arg;
         UBool noArg = FALSE;
         UnicodeString argName = msgPattern.getSubstring(*part);
-        fprintf(stderr, "Looking for argName=[%s]\n", argName.toUTF8String(s).c_str());
-        s.clear();
         if (argumentNames == nullptr) {
             int32_t argNumber = part->getValue();  // ARG_NUMBER
             if (0 <= argNumber && argNumber < cnt) {
@@ -365,12 +400,12 @@ void FormatOperation::format(
         } else {
           arg = nullptr;
           for (int32_t i = 0; i < cnt; ++i) {
-            fprintf(stderr, "Checking argumentNames[%d] [%s]\n", i, argumentNames[i].toUTF8String(s).c_str());
-            s.clear();
             if (0 == argumentNames[i].compare(argName)) {
               arg = arguments + i;
+#ifdef U_DEBUG_MSGFMTNANO
               fprintf(stderr, "Found argName=[%s], arg type=%d\n", argName.toUTF8String(s).c_str(), arg->getType());
               s.clear();
+#endif  // U_DEBUG_MSGFMTNANO
               break;
             }
           }
@@ -387,16 +422,13 @@ void FormatOperation::format(
         else if(plNumber!=nullptr &&
                 plNumber->numberArgIndex==(i-2)) {
             if(plNumber->offset == 0) {
-              fprintf(stderr, "format plNumber offset 0\n");
                 // The number was already formatted with this formatter.
                 FormatAndAppend(plNumber->formatter, plNumber->number,
                                 plNumber->numberString, appendTo, success);
             } else {
-                fprintf(stderr, "format plNumber offset %f before appendTo=[%s]\n", plNumber->offset, appendTo.toUTF8String(s).c_str());
                 // Do not use the formatted (number-offset) string for a named argument
                 // that formats the number without subtracting the offset.
                 plNumber->formatter->format(*arg, appendTo, success);
-                fprintf(stderr, "format plNumber after appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
             }
         }
         else {
@@ -405,9 +437,7 @@ void FormatOperation::format(
                     if (arg->isNumeric()) {
                         const Format* format = numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, success);
                         if (format) {
-                            fprintf(stderr, "format arg type none arg numeric before appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
                             format->format(*arg, appendTo, success);
-                            fprintf(stderr, "format arg type none arg numeric after appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
                         }
                     } else if (arg->getType() == Formattable::kDate) {
                         const Format* format = dateTimeFormatProvider.dateTimeFormat(DateTimeFormatProvider::TYPE_DATE, DateTimeFormatProvider::STYLE_SHORT, locale, success);
@@ -415,9 +445,7 @@ void FormatOperation::format(
                             format->format(*arg, appendTo, success);
                         }
                     } else {
-                      fprintf(stderr, "format arg type none arg NOT numeric/date before appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
                         appendTo.append(arg->getString(success));
-                      fprintf(stderr, "format arg type none arg NOT numeric/date after appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
                     }
                     break;
                 }
@@ -431,9 +459,7 @@ void FormatOperation::format(
                     }
                     const Format* format = createAppropriateFormat(explicitType, style, success);
                     if (format) {
-                      fprintf(stderr, "format arg type simple before appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
                         format->format(*arg, appendTo, success);
-                      fprintf(stderr, "format arg type simple after appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
                     }
                     break;
                 }
@@ -446,9 +472,7 @@ void FormatOperation::format(
                     // because only this one converts non-double numeric types to double.
                     const double number = arg->getDouble(success);
                     int32_t subMsgStart = ChoiceFormatFindSubMessage(msgPattern, i, number);
-                    fprintf(stderr, "format arg type choice before number=%f subMsgStart=%d appendTo=[%s]\n", number, subMsgStart, appendTo.toUTF8String(s).c_str());
                     format(subMsgStart, plNumber, arguments, argumentNames, cnt, appendTo, success);
-                    fprintf(stderr, "format arg type choice after appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
                     break;
                 }
                 case UMSGPAT_ARG_TYPE_PLURAL:
@@ -467,31 +491,20 @@ void FormatOperation::format(
                     // We must use the Formattable::getDouble() variant with the UErrorCode parameter
                     // because only this one converts non-double numeric types to double.
                     double offset = msgPattern.getPluralOffset(i);
-                    fprintf(stderr, "format plural arg %d, offset %f, argType=%d arg=%f, success=%s\n", i, offset, arg->getType(), arg->getDouble(success), u_errorName(success));
                     PluralFormatProvider::SelectorContext context(msgPattern, numberFormatProvider, locale, i, argName, *arg, offset, success);
-                    fprintf(stderr, "before PluralFormatFindSubMessage ctx=%p argType=%d arg=%f\n", &context, context.number.getType(), context.number.getDouble(success));
                     int32_t subMsgStart = PluralFormatFindSubMessage(
                         msgPattern, i, *selector, &context, arg->getDouble(success), success);
-                    fprintf(stderr, "after PluralFormatFindSubMessage ctx=%p argType=%d arg=%f\n", &context, context.number.getType(), context.number.getDouble(success));
-                    s.clear();
-                    fprintf(stderr, "format plural subMsgStart=%d appendTo=[%s]\n", subMsgStart, appendTo.toUTF8String(s).c_str());
                     formatComplexSubMessage(subMsgStart, &context, arguments, argumentNames,
                                             cnt, appendTo, success);
-                    s.clear();
-                    fprintf(stderr, "format plural done, appendTo=[%s], success=%s\n", appendTo.toUTF8String(s).c_str(), u_errorName(success));
                     break;
                 }
                 case UMSGPAT_ARG_TYPE_SELECT: {
-                    int32_t subMsgStart = pluralFormatProvider.selectFindSubMessage(msgPattern, i, arg->getString(success), success);
+                    int32_t subMsgStart = SelectFormatFindSubMessage(msgPattern, i, arg->getString(success), success);
                     if (U_FAILURE(success)) {
                         return;
                     }
-                    fprintf(stderr, "format arg type select before subMsgStart=%d appendTo=[%s]\n", subMsgStart, appendTo.toUTF8String(s).c_str());
-                    s.clear();
                     formatComplexSubMessage(subMsgStart, /*context=*/nullptr, arguments, argumentNames,
                                             cnt, appendTo, success);
-                    fprintf(stderr, "format arg type select after appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
-                    s.clear();
                     break;
                 }
             }
@@ -508,11 +521,11 @@ void FormatOperation::formatComplexSubMessage(int32_t msgStart,
                                               int32_t cnt,
                                               UnicodeString& appendTo,
                                               UErrorCode& success) const {
+#ifdef U_DEBUG_MSGFMTNANO
     std::string s;
     std::string s2;
     fprintf(stderr, "formatComplexSubMessage msgStart=%d msgPattern=%s plNumber=%p cnt=%d appendTo=[%s] success=%s\n", msgStart, msgPattern.getPatternString().toUTF8String(s).c_str(), plNumber, cnt, appendTo.toUTF8String(s2).c_str(), u_errorName(success));
-    s.clear();
-    s2.clear();
+#endif  // U_DEBUG_MSGFMTNANO
     if (U_FAILURE(success)) {
         return;
     }
