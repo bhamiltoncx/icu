@@ -8,9 +8,11 @@
 #include "hash.h"
 #include "mutex.h"
 #include "unicode/bytestream.h"
+#include "unicode/calendar.h"
+#include "unicode/datefmt.h"
 #include "unicode/msgfmtnano.h"
 #include "unicode/msgfmtnano_datetimeprovider.h"
-#include "unicode/datefmt.h"
+#include "unicode/timezone.h"
 #include "unicode/uloc.h"
 
 U_CDECL_BEGIN
@@ -68,6 +70,23 @@ void appendDateTimeStyleString(DateTimeFormatProvider::DateTimeStyle style, std:
     }
 }
 
+void formattableToUDate(const Formattable& date, UDate& udate, UErrorCode& status) {
+    switch (date.getType()) {
+    case Formattable::kDate:
+        udate = date.getDate();
+        return;
+    case Formattable::kDouble:
+        udate = (UDate)date.getDouble();
+        return;
+    case Formattable::kLong:
+        udate = (UDate)date.getLong();
+        return;
+    default:
+        status = U_ILLEGAL_ARGUMENT_ERROR;
+        return;
+    }
+}
+
 // Protects access to |formatters|.
 UMutex gMutex;
 
@@ -82,14 +101,14 @@ class DateTimeFormatProviderImpl : public DateTimeFormatProvider {
     DateTimeFormatProviderImpl &operator=(const DateTimeFormatProviderImpl&) = delete;
     DateTimeFormatProviderImpl(const DateTimeFormatProviderImpl&) = delete;
 
-    const Format* dateTimeFormat(DateTimeStyle dateStyle, DateTimeStyle timeStyle, const Locale& locale, UErrorCode& status) const;
-    const Format* dateTimeFormatForSkeleton(const UnicodeString& skeleton, const Locale& locale, UErrorCode& status) const;
+    void formatDateTime(const Formattable& date, DateTimeStyle dateStyle, DateTimeStyle timeStyle, const Locale& locale, const TimeZone* timeZone, UnicodeString& appendTo, UErrorCode& status) const;
+    void formatDateTimeWithSkeleton(const Formattable& date, const UnicodeString& skeleton, const Locale& locale, const TimeZone* timeZone, UnicodeString& appendTo, UErrorCode& status) const;
 
  private:
     mutable Hashtable formatters;
 };
 
-const Format* DateTimeFormatProviderImpl::dateTimeFormat(DateTimeStyle dateStyle, DateTimeStyle timeStyle, const Locale& locale, UErrorCode& status) const {
+void DateTimeFormatProviderImpl::formatDateTime(const Formattable& date, DateTimeStyle dateStyle, DateTimeStyle timeStyle, const Locale& locale, const TimeZone* timeZone, UnicodeString& appendTo, UErrorCode& status) const {
   std::string key;
   key.append("dateStyle=");
   appendDateTimeStyleString(dateStyle, key);
@@ -101,9 +120,10 @@ const Format* DateTimeFormatProviderImpl::dateTimeFormat(DateTimeStyle dateStyle
   UnicodeString ukey(key.data(), key.length(), US_INV);
   DateFormat::EStyle dateFormatStyle = dateTimeStyleToDateFormatStyle(dateStyle, status);
   DateFormat::EStyle timeFormatStyle = dateTimeStyleToDateFormatStyle(timeStyle, status);
+  DateFormat* format;
   {
     Mutex lock(&gMutex);
-    Format* format = static_cast<Format*>(formatters.get(ukey));
+    format = static_cast<DateFormat*>(formatters.get(ukey));
     if (!format) {
         format = DateFormat::createDateTimeInstance(dateFormatStyle, timeFormatStyle, locale);
         if (format) {
@@ -113,20 +133,30 @@ const Format* DateTimeFormatProviderImpl::dateTimeFormat(DateTimeStyle dateStyle
     if (!format && U_SUCCESS(status)) {
         status = U_INTERNAL_PROGRAM_ERROR;
     }
-    return format;
+  }
+  if (U_SUCCESS(status)) {
+      LocalPointer<Calendar> localCalendar(format->getCalendar()->clone());
+      UDate udate;
+      formattableToUDate(date, udate, status);
+      localCalendar->setTime(udate, status);
+      if (timeZone) {
+          localCalendar->setTimeZone(*timeZone);
+      }
+      format->format(*localCalendar, appendTo, /*posIter=*/nullptr, status);
   }
 }
 
-const Format* DateTimeFormatProviderImpl::dateTimeFormatForSkeleton(const UnicodeString& skeleton, const Locale& locale, UErrorCode& status) const {
+void DateTimeFormatProviderImpl::formatDateTimeWithSkeleton(const Formattable& date, const UnicodeString& skeleton, const Locale& locale, const TimeZone* timeZone, UnicodeString& appendTo, UErrorCode& status) const {
   std::string key("skeleton|");
   StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
   skeleton.toUTF8(keySink);
   key.append("|");
   locale.toLanguageTag(keySink, status);
   UnicodeString ukey(UnicodeString::fromUTF8(StringPiece(key)));
+  DateFormat* format;
   {
     Mutex lock(&gMutex);
-    Format* format = static_cast<Format*>(formatters.get(ukey));
+    format = static_cast<DateFormat*>(formatters.get(ukey));
     if (!format) {
         format = DateFormat::createInstanceForSkeleton(skeleton, locale, status);
         if (format) {
@@ -136,7 +166,16 @@ const Format* DateTimeFormatProviderImpl::dateTimeFormatForSkeleton(const Unicod
     if (!format && U_SUCCESS(status)) {
         status = U_INTERNAL_PROGRAM_ERROR;
     }
-    return format;
+  }
+  if (U_SUCCESS(status)) {
+      LocalPointer<Calendar> localCalendar(format->getCalendar()->clone());
+      UDate udate;
+      formattableToUDate(date, udate, status);
+      localCalendar->setTime(udate, status);
+      if (timeZone) {
+          localCalendar->setTimeZone(*timeZone);
+      }
+      format->format(*localCalendar, appendTo, /*posIter=*/nullptr, status);
   }
 }
 

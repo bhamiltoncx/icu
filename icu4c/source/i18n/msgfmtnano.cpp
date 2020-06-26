@@ -20,32 +20,6 @@ U_NAMESPACE_BEGIN
 
 namespace {
 
-void FormatAndAppend(const Format* formatter, const Formattable& arg,
-                     const UnicodeString &argString, UnicodeString& appendTo, UErrorCode& ec) {
-    if (U_FAILURE(ec)) {
-        return;
-    }
-#ifdef U_DEBUG_MSGFMTNANO
-    std::string s;
-#endif  // U_DEBUG_MSGFMTNANO
-
-    if (!argString.isEmpty()) {
-        appendTo.append(argString);
-#ifdef U_DEBUG_MSGFMTNANO
-        fprintf(stderr, "FormatAndAppend argString after appendTo=[%s]\n", appendTo.toUTF8String(s).c_str());
-#endif  // U_DEBUG_MSGFMTNANO
-    } else {
-        UnicodeString formatted;
-        formatter->format(arg, formatted, ec);
-        if (U_SUCCESS(ec)) {
-          appendTo.append(formatted);
-        }
-#ifdef U_DEBUG_MSGFMTNANO
-        fprintf(stderr, "FormatAndAppend no argString after, appendTo=[%s], ec=%s\n", appendTo.toUTF8String(s).c_str(), u_errorName(ec));
-#endif  // U_DEBUG_MSGFMTNANO
-    }
-}
-
 // Copied from patternprops.cpp (that file brings in huge tables of data this
 // doesn't need)
 UBool
@@ -285,13 +259,13 @@ int32_t SelectFormatFindSubMessage(const MessagePattern& pattern, int32_t partIn
 
 class FormatOperation {
  public:
-    FormatOperation(const Locale& locale,
+    FormatOperation(const MessageFormatNano::FormatParams& params,
                     const MessagePattern& msgPattern,
                     const NumberFormatProvider& numberFormatProvider,
                     const DateTimeFormatProvider& dateTimeFormatProvider,
                     const RuleBasedNumberFormatProvider& ruleBasedNumberFormatProvider,
                     const PluralFormatProvider& pluralFormatProvider) :
-            locale(locale),
+            params(params),
             msgPattern(msgPattern),
             numberFormatProvider(numberFormatProvider),
             dateTimeFormatProvider(dateTimeFormatProvider),
@@ -307,24 +281,20 @@ class FormatOperation {
 
     void format(int32_t msgStart,
                 const PluralFormatProvider::SelectorContext *plNumber,
-                const Formattable* arguments,
-                const UnicodeString* argumentNames,
-                int32_t cnt,
                 UnicodeString& appendTo,
                 UErrorCode& success) const;
 private:
     void formatComplexSubMessage(int32_t msgStart,
                                  const PluralFormatProvider::SelectorContext *plNumber,
-                                 const Formattable* arguments,
-                                 const UnicodeString *argumentNames,
-                                 int32_t cnt,
                                  UnicodeString& appendTo,
                                  UErrorCode& success) const;
 
-    const Format* createAppropriateFormat(const UnicodeString& type,
-                                          const UnicodeString& style,
-                                          UErrorCode& ec) const;
-    const Locale& locale;
+    void formatArgWithExplicitType(const Formattable& arg,
+                                   const UnicodeString& type,
+                                   const UnicodeString& style,
+                                   UnicodeString& appendTo,
+                                   UErrorCode& ec) const;
+    const MessageFormatNano::FormatParams& params;
     const MessagePattern& msgPattern;
     const NumberFormatProvider& numberFormatProvider;
     const DateTimeFormatProvider& dateTimeFormatProvider;
@@ -335,9 +305,6 @@ private:
 void FormatOperation::format(
     int32_t msgStart,
     const PluralFormatProvider::SelectorContext *plNumber,
-    const Formattable* arguments,
-    const UnicodeString *argumentNames,
-    int32_t cnt,
     UnicodeString& appendTo,
     UErrorCode& success) const {
     if (U_FAILURE(success)) {
@@ -347,7 +314,7 @@ void FormatOperation::format(
 #ifdef U_DEBUG_MSGFMTNANO
     std::string s;
     std::string s2;
-    fprintf(stderr, "format msgStart=%d msgPattern=%s plNumber=%p cnt=%d appendTo=[%s] success=%s\n", msgStart, msgPattern.getPatternString().toUTF8String(s).c_str(), plNumber, cnt, appendTo.toUTF8String(s2).c_str(), u_errorName(success));
+    fprintf(stderr, "format msgStart=%d msgPattern=%s plNumber=%p cnt=%d appendTo=[%s] success=%s\n", msgStart, msgPattern.getPatternString().toUTF8String(s).c_str(), plNumber, params.count, appendTo.toUTF8String(s2).c_str(), u_errorName(success));
     s.clear();
     s2.clear();
 #endif   // U_DEBUG_MSGFMTNANO
@@ -368,15 +335,9 @@ void FormatOperation::format(
         prevIndex = part->getLimit();
         if (type == UMSGPAT_PART_TYPE_REPLACE_NUMBER && plNumber) {
             if (plNumber->forReplaceNumber) {
-                // number-offset was already formatted.
-                FormatAndAppend(
-                    plNumber->formatter,
-                    plNumber->number, plNumber->numberString, appendTo, success);
+                appendTo.append(plNumber->numberString);
             } else {
-                const Format* nf = numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, success);
-                if (U_SUCCESS(success)) {
-                    nf->format(plNumber->number, appendTo, success);
-                }
+                numberFormatProvider.formatNumber(plNumber->number, NumberFormatProvider::TYPE_NUMBER, params.locale, appendTo, success);
             }
             continue;
         }
@@ -389,19 +350,19 @@ void FormatOperation::format(
         const Formattable* arg;
         UBool noArg = FALSE;
         UnicodeString argName = msgPattern.getSubstring(*part);
-        if (argumentNames == nullptr) {
+        if (params.argumentNames == nullptr) {
             int32_t argNumber = part->getValue();  // ARG_NUMBER
-            if (0 <= argNumber && argNumber < cnt) {
-                arg = arguments + argNumber;
+            if (0 <= argNumber && argNumber < params.count) {
+                arg = params.arguments + argNumber;
             } else {
                 arg = nullptr;
                 noArg = TRUE;
             }
         } else {
           arg = nullptr;
-          for (int32_t i = 0; i < cnt; ++i) {
-            if (0 == argumentNames[i].compare(argName)) {
-              arg = arguments + i;
+          for (int32_t i = 0; i < params.count; ++i) {
+            if (0 == params.argumentNames[i].compare(argName)) {
+              arg = params.arguments + i;
 #ifdef U_DEBUG_MSGFMTNANO
               fprintf(stderr, "Found argName=[%s], arg type=%d\n", argName.toUTF8String(s).c_str(), arg->getType());
               s.clear();
@@ -421,29 +382,21 @@ void FormatOperation::format(
         }
         else if(plNumber!=nullptr &&
                 plNumber->numberArgIndex==(i-2)) {
-            if(plNumber->offset == 0) {
-                // The number was already formatted with this formatter.
-                FormatAndAppend(plNumber->formatter, plNumber->number,
-                                plNumber->numberString, appendTo, success);
+            if(plNumber->offset == 0 && plNumber->forReplaceNumber) {
+                appendTo.append(plNumber->numberString);
             } else {
                 // Do not use the formatted (number-offset) string for a named argument
                 // that formats the number without subtracting the offset.
-                plNumber->formatter->format(*arg, appendTo, success);
+                numberFormatProvider.formatNumber(*arg, NumberFormatProvider::TYPE_NUMBER, params.locale, appendTo, success);
             }
         }
         else {
             switch (argType) {
                 case UMSGPAT_ARG_TYPE_NONE: {
                     if (arg->isNumeric()) {
-                        const Format* format = numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, success);
-                        if (format) {
-                            format->format(*arg, appendTo, success);
-                        }
+                        numberFormatProvider.formatNumber(*arg, NumberFormatProvider::TYPE_NUMBER, params.locale, appendTo, success);
                     } else if (arg->getType() == Formattable::kDate) {
-                        const Format* format = dateTimeFormatProvider.dateTimeFormat(/*dateStyle=*/DateTimeFormatProvider::STYLE_SHORT, /*timeStyle=*/DateTimeFormatProvider::STYLE_SHORT, locale, success);
-                        if (format) {
-                            format->format(*arg, appendTo, success);
-                        }
+                        dateTimeFormatProvider.formatDateTime(*arg, /*dateStyle=*/DateTimeFormatProvider::STYLE_SHORT, /*timeStyle=*/DateTimeFormatProvider::STYLE_SHORT, params.locale, params.timeZone.getAlias(), appendTo, success);
                     } else {
                         appendTo.append(arg->getString(success));
                     }
@@ -457,10 +410,7 @@ void FormatOperation::format(
                         style = msgPattern.getSubstring(*part);
                         ++i;
                     }
-                    const Format* format = createAppropriateFormat(explicitType, style, success);
-                    if (format) {
-                        format->format(*arg, appendTo, success);
-                    }
+                    formatArgWithExplicitType(*arg, explicitType, style, appendTo, success);
                     break;
                 }
                 case UMSGPAT_ARG_TYPE_CHOICE: {
@@ -472,7 +422,7 @@ void FormatOperation::format(
                     // because only this one converts non-double numeric types to double.
                     const double number = arg->getDouble(success);
                     int32_t subMsgStart = ChoiceFormatFindSubMessage(msgPattern, i, number);
-                    format(subMsgStart, plNumber, arguments, argumentNames, cnt, appendTo, success);
+                    format(subMsgStart, plNumber, appendTo, success);
                     break;
                 }
                 case UMSGPAT_ARG_TYPE_PLURAL:
@@ -491,11 +441,10 @@ void FormatOperation::format(
                     // We must use the Formattable::getDouble() variant with the UErrorCode parameter
                     // because only this one converts non-double numeric types to double.
                     double offset = msgPattern.getPluralOffset(i);
-                    PluralFormatProvider::SelectorContext context(msgPattern, numberFormatProvider, locale, i, argName, *arg, offset, success);
+                    PluralFormatProvider::SelectorContext context(msgPattern, numberFormatProvider, params.locale, i, argName, *arg, offset, success);
                     int32_t subMsgStart = PluralFormatFindSubMessage(
                         msgPattern, i, *selector, &context, arg->getDouble(success), success);
-                    formatComplexSubMessage(subMsgStart, &context, arguments, argumentNames,
-                                            cnt, appendTo, success);
+                    formatComplexSubMessage(subMsgStart, &context, appendTo, success);
                     break;
                 }
                 case UMSGPAT_ARG_TYPE_SELECT: {
@@ -503,8 +452,7 @@ void FormatOperation::format(
                     if (U_FAILURE(success)) {
                         return;
                     }
-                    formatComplexSubMessage(subMsgStart, /*context=*/nullptr, arguments, argumentNames,
-                                            cnt, appendTo, success);
+                    formatComplexSubMessage(subMsgStart, /*context=*/nullptr, appendTo, success);
                     break;
                 }
             }
@@ -516,22 +464,19 @@ void FormatOperation::format(
 
 void FormatOperation::formatComplexSubMessage(int32_t msgStart,
                                               const PluralFormatProvider::SelectorContext *plNumber,
-                                              const Formattable* arguments,
-                                              const UnicodeString *argumentNames,
-                                              int32_t cnt,
                                               UnicodeString& appendTo,
                                               UErrorCode& success) const {
 #ifdef U_DEBUG_MSGFMTNANO
     std::string s;
     std::string s2;
-    fprintf(stderr, "formatComplexSubMessage msgStart=%d msgPattern=%s plNumber=%p cnt=%d appendTo=[%s] success=%s\n", msgStart, msgPattern.getPatternString().toUTF8String(s).c_str(), plNumber, cnt, appendTo.toUTF8String(s2).c_str(), u_errorName(success));
+    fprintf(stderr, "formatComplexSubMessage msgStart=%d msgPattern=%s plNumber=%p cnt=%d appendTo=[%s] success=%s\n", msgStart, msgPattern.getPatternString().toUTF8String(s).c_str(), plNumber, params.count, appendTo.toUTF8String(s2).c_str(), u_errorName(success));
 #endif  // U_DEBUG_MSGFMTNANO
     if (U_FAILURE(success)) {
         return;
     }
 
     if (!MessageImpl::jdkAposMode(msgPattern)) {
-        format(msgStart, plNumber, arguments, argumentNames, cnt, appendTo, success);
+        format(msgStart, plNumber, appendTo, success);
         return;
     }
 
@@ -557,10 +502,7 @@ void FormatOperation::formatComplexSubMessage(int32_t msgStart,
                     // number-offset was already formatted.
                     sb.append(plNumber->numberString);
                 } else {
-                    const Format* format = numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, success);
-                    if (format) {
-                        sb.append(format->format(plNumber->number, sb, success));
-                    }
+                    numberFormatProvider.formatNumber(plNumber->number, NumberFormatProvider::TYPE_NUMBER, params.locale, sb, success);
                 }
             }
             prevIndex = part.getLimit();
@@ -576,18 +518,18 @@ void FormatOperation::formatComplexSubMessage(int32_t msgStart,
     if (sb.indexOf(u'{') >= 0) {
         MessagePattern subMessagePattern(UMSGPAT_APOS_DOUBLE_REQUIRED, success);
         subMessagePattern.parse(sb, /*parseError=*/nullptr, success);
-        FormatOperation subFormatOperation(locale, subMessagePattern, numberFormatProvider, dateTimeFormatProvider, ruleBasedNumberFormatProvider, pluralFormatProvider);
-        subFormatOperation.format(/*msgStart=*/0, /*plNumber=*/nullptr, arguments, argumentNames, cnt, appendTo, success);
+        FormatOperation subFormatOperation(params, subMessagePattern, numberFormatProvider, dateTimeFormatProvider, ruleBasedNumberFormatProvider, pluralFormatProvider);
+        subFormatOperation.format(/*msgStart=*/0, /*plNumber=*/nullptr, appendTo, success);
     } else {
         appendTo.append(sb);
     }
 }
 
 // Copied from msgfmt.cpp
-const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type, const UnicodeString& style,
-                                                       UErrorCode& ec) const {
+void FormatOperation::formatArgWithExplicitType(const Formattable& arg, const UnicodeString& type, const UnicodeString& style,
+                                                UnicodeString& appendTo, UErrorCode& ec) const {
     if (U_FAILURE(ec)) {
-        return nullptr;
+        return;
     }
 
     // MessageFormat
@@ -629,22 +571,27 @@ const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type
         case 0: // number
             switch (FindKeyword(style, NUMBER_STYLE_IDS, UPRV_LENGTHOF(NUMBER_STYLE_IDS))) {
                 case 0: // default
-                    return numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, locale, ec);
+                    numberFormatProvider.formatNumber(arg, NumberFormatProvider::TYPE_NUMBER, params.locale, appendTo, ec);
+                    return;
                 case 1: // currency
-                    return numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_CURRENCY, locale, ec);
+                    numberFormatProvider.formatNumber(arg, NumberFormatProvider::TYPE_CURRENCY, params.locale, appendTo, ec);
+                    return;
                 case 2: // percent
-                    return numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_PERCENT, locale, ec);
+                    numberFormatProvider.formatNumber(arg, NumberFormatProvider::TYPE_PERCENT, params.locale, appendTo, ec);
+                    return;
                 case 3: // integer
-                    return numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_INTEGER, locale, ec);
+                    numberFormatProvider.formatNumber(arg, NumberFormatProvider::TYPE_INTEGER, params.locale, appendTo, ec);
+                    return;
                 default: { // pattern or skeleton
                     int32_t firstNonSpace = SkipWhiteSpace(style, 0);
                     if (style.compare(firstNonSpace, 2, u"::", 0, 2) == 0) {
                         // Skeleton
                         UnicodeString skeleton = style.tempSubString(firstNonSpace + 2);
-                        return numberFormatProvider.numberFormatForSkeleton(skeleton, locale, ec);
+                        numberFormatProvider.formatNumberWithSkeleton(arg, skeleton, params.locale, appendTo, ec);
                     }
                     // Pattern
-                    return numberFormatProvider.decimalFormatWithPattern(style, locale, ec);
+                    numberFormatProvider.formatDecimalNumberWithPattern(arg, style, params.locale, appendTo, ec);
+                    return;
                 }
             }
             break;
@@ -654,27 +601,32 @@ const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type
             if (style.compare(firstNonSpace, 2, u"::", 0, 2) == 0) {
                 // Skeleton
                 UnicodeString skeleton = style.tempSubString(firstNonSpace + 2);
-                return dateTimeFormatProvider.dateTimeFormatForSkeleton(skeleton, locale, ec);
+                dateTimeFormatProvider.formatDateTimeWithSkeleton(arg, skeleton, params.locale, params.timeZone.getAlias(), appendTo, ec);
+                return;
             }
             // Pattern
             int32_t styleID = FindKeyword(style, DATE_STYLE_IDS, UPRV_LENGTHOF(DATE_STYLE_IDS));
             DateTimeFormatProvider::DateTimeStyle dateTimeStyle = (styleID >= 0) ? DATE_STYLES[styleID] : DateTimeFormatProvider::STYLE_DEFAULT;
 
             if (typeID == 1) {
-                return dateTimeFormatProvider.dateTimeFormat(/*dateStyle=*/dateTimeStyle, /*timeStyle=*/DateTimeFormatProvider::STYLE_NONE, locale, ec);
+                dateTimeFormatProvider.formatDateTime(arg, /*dateStyle=*/dateTimeStyle, /*timeStyle=*/DateTimeFormatProvider::STYLE_NONE, params.locale, params.timeZone.getAlias(), appendTo, ec);
+                return;
             }
-            return dateTimeFormatProvider.dateTimeFormat(/*dateStyle=*/DateTimeFormatProvider::STYLE_NONE, /*timeStyle=*/dateTimeStyle, locale, ec);
+            dateTimeFormatProvider.formatDateTime(arg, /*dateStyle=*/DateTimeFormatProvider::STYLE_NONE, /*timeStyle=*/dateTimeStyle, params.locale, params.timeZone.getAlias(), appendTo, ec);
+            return;
         }
         case 3: // spellout
-            return ruleBasedNumberFormatProvider.ruleBasedNumberFormat(RuleBasedNumberFormatProvider::TYPE_SPELLOUT, locale, style, ec);
+            ruleBasedNumberFormatProvider.formatRuleBasedNumber(arg, RuleBasedNumberFormatProvider::TYPE_SPELLOUT, params.locale, style, appendTo, ec);
+            return;
         case 4: // ordinal
-            return ruleBasedNumberFormatProvider.ruleBasedNumberFormat(RuleBasedNumberFormatProvider::TYPE_ORDINAL, locale, style, ec);
+            ruleBasedNumberFormatProvider.formatRuleBasedNumber(arg, RuleBasedNumberFormatProvider::TYPE_ORDINAL, params.locale, style, appendTo, ec);
+            return;
         case 5: // duration
-            return ruleBasedNumberFormatProvider.ruleBasedNumberFormat(RuleBasedNumberFormatProvider::TYPE_DURATION, locale, style, ec);
+            ruleBasedNumberFormatProvider.formatRuleBasedNumber(arg, RuleBasedNumberFormatProvider::TYPE_DURATION, params.locale, style, appendTo, ec);
+            return;
     }
 
     ec = U_ILLEGAL_ARGUMENT_ERROR;
-    return nullptr;
 }
 
 }  // namespace
@@ -682,11 +634,9 @@ const Format* FormatOperation::createAppropriateFormat(const UnicodeString& type
 //--------------------------------------------------------------------
 
 MessageFormatNano::MessageFormatNano(const UnicodeString& pattern,
-                                     const Locale& newLocale,
                                      UParseError& parseError,
                                      UErrorCode& success)
-        : locale(newLocale),
-          msgPattern(pattern, &parseError, success),
+        : msgPattern(pattern, &parseError, success),
           numberFormatProvider(new NumberFormatProvider()),
           dateTimeFormatProvider(new DateTimeFormatProvider()),
           ruleBasedNumberFormatProvider(new RuleBasedNumberFormatProvider()),
@@ -694,15 +644,13 @@ MessageFormatNano::MessageFormatNano(const UnicodeString& pattern,
 }
 
 MessageFormatNano::MessageFormatNano(const UnicodeString& pattern,
-                                     const Locale& newLocale,
                                      LocalPointer<const NumberFormatProvider> numberFormatProvider,
                                      LocalPointer<const DateTimeFormatProvider> dateTimeFormatProvider,
                                      LocalPointer<const RuleBasedNumberFormatProvider> ruleBasedNumberFormatProvider,
                                      LocalPointer<const PluralFormatProvider> pluralFormatProvider,
                                      UParseError& parseError,
                                      UErrorCode& status)
-        : locale(newLocale),
-          msgPattern(pattern, &parseError, status),
+        : msgPattern(pattern, &parseError, status),
           numberFormatProvider(std::move(numberFormatProvider)),
           dateTimeFormatProvider(std::move(dateTimeFormatProvider)),
           ruleBasedNumberFormatProvider(std::move(ruleBasedNumberFormatProvider)),
@@ -710,13 +658,11 @@ MessageFormatNano::MessageFormatNano(const UnicodeString& pattern,
 {
 }
 
-UnicodeString& MessageFormatNano::format(const UnicodeString* argumentNames,
-                                         const Formattable* arguments,
-                                         int32_t cnt,
+UnicodeString& MessageFormatNano::format(const FormatParams& formatParams,
                                          UnicodeString& appendTo,
                                          UErrorCode& success) const {
-    FormatOperation formatOperation(locale, msgPattern, *numberFormatProvider, *dateTimeFormatProvider, *ruleBasedNumberFormatProvider, *pluralFormatProvider);
-    formatOperation.format(/*msgStart=*/0, /*plNumber=*/nullptr, arguments, argumentNames, cnt, appendTo, success);
+    FormatOperation formatOperation(formatParams, msgPattern, *numberFormatProvider, *dateTimeFormatProvider, *ruleBasedNumberFormatProvider, *pluralFormatProvider);
+    formatOperation.format(/*msgStart=*/0, /*plNumber=*/nullptr, appendTo, success);
     return appendTo;
 }
 

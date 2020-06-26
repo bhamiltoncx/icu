@@ -36,22 +36,30 @@ void MessageFormatNanoTest::runIndexedTest(int32_t index, UBool exec, const char
 void MessageFormatNanoTest::testEmpty() {
     IcuTestErrorCode errorCode(*this, "testEmpty");
     UParseError parseError;
-    MessageFormatNano format("", Locale::getUS(), parseError, errorCode);
+    MessageFormatNano format("", parseError, errorCode);
     UnicodeString result;
-    assertEquals("format empty", UnicodeString(), format.format(/*argumentNames=*/{}, /*arguments=*/{}, /*count=*/0, result, errorCode));
+    MessageFormatNano::FormatParams params =
+            MessageFormatNano::FormatParamsBuilder::withArguments(/*arguments=*/{}, /*count=*/0)
+                    .setLocale(Locale::getUS())
+                    .build();
+    assertEquals("format empty", UnicodeString(), format.format(params, result, errorCode));
 }
 
 void MessageFormatNanoTest::testBasics() {
     IcuTestErrorCode errorCode(*this, "testBasics");
     UParseError parseError;
-    MessageFormatNano format("{0} says {1}", Locale::getUS(), parseError, errorCode);
+    MessageFormatNano format("{0} says {1}", parseError, errorCode);
     UnicodeString result;
     const UnicodeString argumentNames[] = {UnicodeString(u"0"), UnicodeString(u"1")};
     const Formattable arguments[] = {UnicodeString(u"Alice"), UnicodeString(u"hi")};
+    MessageFormatNano::FormatParams params =
+            MessageFormatNano::FormatParamsBuilder::withNamedArguments(argumentNames, arguments, UPRV_LENGTHOF(arguments))
+                    .setLocale(Locale::getUS())
+                    .build();
     assertEquals(
         "format basic",
         UnicodeString("Alice says hi"),
-        format.format(argumentNames, arguments, UPRV_LENGTHOF(argumentNames), result, errorCode));
+        format.format(params, result, errorCode));
 }
 
 void MessageFormatNanoTest::testPlurals() {
@@ -63,7 +71,6 @@ void MessageFormatNanoTest::testPlurals() {
         "  one {have one message}"
         "  other {have # messages}"
         "}",
-        Locale::getUS(),
         NumberFormatProviderNano::createInstance(errorCode),
         LocalPointer<const DateTimeFormatProvider>(new DateTimeFormatProvider()),
         LocalPointer<const RuleBasedNumberFormatProvider>(new RuleBasedNumberFormatProvider()),
@@ -73,20 +80,32 @@ void MessageFormatNanoTest::testPlurals() {
     UnicodeString result;
     const UnicodeString argumentNames[] = {UnicodeString(u"itemCount")};
     const Formattable argumentZero[] = {0};
+    const MessageFormatNano::FormatParams paramsZero =
+            MessageFormatNano::FormatParamsBuilder::withNamedArguments(argumentNames, argumentZero, UPRV_LENGTHOF(argumentZero))
+                    .setLocale(Locale::getUS())
+                    .build();
     assertEquals(
         "format plurals zero",
         UnicodeString("You have no messages"),
-        format.format(argumentNames, argumentZero, UPRV_LENGTHOF(argumentNames), result, errorCode));
+        format.format(paramsZero, result, errorCode));
     result.remove();
     const Formattable argumentOne[] = {1};
+    const MessageFormatNano::FormatParams paramsOne =
+            MessageFormatNano::FormatParamsBuilder::withNamedArguments(argumentNames, argumentOne, UPRV_LENGTHOF(argumentOne))
+                    .setLocale(Locale::getUS())
+                    .build();
     assertEquals(
         "format plurals one",
         UnicodeString("You have one message"),
-        format.format(argumentNames, argumentOne, UPRV_LENGTHOF(argumentNames), result, errorCode));
+        format.format(paramsOne, result, errorCode));
     result.remove();
     const Formattable argumentOther[] = {42};
+    const MessageFormatNano::FormatParams paramsOther =
+            MessageFormatNano::FormatParamsBuilder::withNamedArguments(argumentNames, argumentOther, UPRV_LENGTHOF(argumentOther))
+                    .setLocale(Locale::getUS())
+                    .build();
     assertEquals(
         "format plurals other",
         UnicodeString("You have 42 messages"),
-        format.format(argumentNames, argumentOther, UPRV_LENGTHOF(argumentNames), result, errorCode));
+        format.format(paramsOther, result, errorCode));
 }

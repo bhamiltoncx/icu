@@ -42,15 +42,15 @@ class NumberFormatProviderImpl : public NumberFormatProvider {
     NumberFormatProviderImpl &operator=(const NumberFormatProviderImpl&) = delete;
     NumberFormatProviderImpl(const NumberFormatProviderImpl&) = delete;
 
-    const Format* numberFormat(NumberFormatType type, const Locale& locale, UErrorCode& status) const;
-    const Format* numberFormatForSkeleton(const UnicodeString& skeleton, const Locale& locale, UErrorCode& status) const;
-    const Format* decimalFormatWithPattern(const UnicodeString& pattern, const Locale& locale, UErrorCode& status) const;
+    void formatNumber(const Formattable& number, NumberFormatType type, const Locale& locale, UnicodeString& appendTo, UErrorCode& status) const;
+    void formatNumberWithSkeleton(const Formattable& number, const UnicodeString& skeleton, const Locale& locale, UnicodeString& appendTo, UErrorCode& status) const;
+    void formatDecimalNumberWithPattern(const Formattable& number, const UnicodeString& pattern, const Locale& locale, UnicodeString& appendTo, UErrorCode& status) const;
 
  private:
     mutable Hashtable formatters;
 };
 
-const Format* NumberFormatProviderImpl::numberFormat(NumberFormatType type, const Locale& locale, UErrorCode& status) const {
+void NumberFormatProviderImpl::formatNumber(const Formattable& number, NumberFormatType type, const Locale& locale, UnicodeString& appendTo, UErrorCode& status) const {
   std::string key;
   switch (type) {
     case NumberFormatProvider::TYPE_NUMBER:
@@ -69,9 +69,10 @@ const Format* NumberFormatProviderImpl::numberFormat(NumberFormatType type, cons
   StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
   locale.toLanguageTag(keySink, status);
   UnicodeString ukey(key.data(), key.length(), US_INV);
+  Format* format;
   {
     Mutex lock(&gMutex);
-    Format* format = static_cast<Format*>(formatters.get(ukey));
+    format = static_cast<Format*>(formatters.get(ukey));
     if (!format) {
       switch (type) {
         case NumberFormatProvider::TYPE_NUMBER:
@@ -95,20 +96,23 @@ const Format* NumberFormatProviderImpl::numberFormat(NumberFormatType type, cons
     if (!format && U_SUCCESS(status)) {
       status = U_INTERNAL_PROGRAM_ERROR;
     }
-    return format;
+  }
+  if (U_SUCCESS(status)) {
+      format->format(number, appendTo, status);
   }
 }
 
-const Format* NumberFormatProviderImpl::numberFormatForSkeleton(const UnicodeString& skeleton, const Locale& locale, UErrorCode& status) const {
+void NumberFormatProviderImpl::formatNumberWithSkeleton(const Formattable& number, const UnicodeString& skeleton, const Locale& locale, UnicodeString& appendTo, UErrorCode& status) const {
   std::string key("skeleton|");
   StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
   skeleton.toUTF8(keySink);
   key.append("|");
   locale.toLanguageTag(keySink, status);
   UnicodeString ukey(UnicodeString::fromUTF8(StringPiece(key)));
+  Format* format;
   {
     Mutex lock(&gMutex);
-    Format* format = static_cast<Format*>(formatters.get(ukey));
+    format = static_cast<Format*>(formatters.get(ukey));
     if (!format) {
       format = number::NumberFormatter::forSkeleton(skeleton, status).locale(locale).toFormat(status);
       if (format) {
@@ -118,20 +122,23 @@ const Format* NumberFormatProviderImpl::numberFormatForSkeleton(const UnicodeStr
     if (!format && U_SUCCESS(status)) {
       status = U_INTERNAL_PROGRAM_ERROR;
     }
-    return format;
+  }
+  if (U_SUCCESS(status)) {
+      format->format(number, appendTo, status);
   }
 }
 
-const Format* NumberFormatProviderImpl::decimalFormatWithPattern(const UnicodeString& pattern, const Locale& locale, UErrorCode& status) const {
+void NumberFormatProviderImpl::formatDecimalNumberWithPattern(const Formattable& number, const UnicodeString& pattern, const Locale& locale, UnicodeString& appendTo, UErrorCode& status) const {
   std::string key("decimalpattern|");
   StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
   locale.toLanguageTag(keySink, status);
   key.append("|");
   pattern.toUTF8(keySink);
   UnicodeString ukey(UnicodeString::fromUTF8(StringPiece(key)));
+  Format* format;
   {
     Mutex lock(&gMutex);
-    Format* format = static_cast<Format*>(formatters.get(ukey));
+    format = static_cast<Format*>(formatters.get(ukey));
     if (!format) {
       format = NumberFormat::createInstance(locale, status);
       DecimalFormat* decimalFormat = dynamic_cast<DecimalFormat*>(format);
@@ -145,7 +152,9 @@ const Format* NumberFormatProviderImpl::decimalFormatWithPattern(const UnicodeSt
     if (!format && U_SUCCESS(status)) {
       status = U_INTERNAL_PROGRAM_ERROR;
     }
-    return format;
+  }
+  if (U_SUCCESS(status)) {
+      format->format(number, appendTo, status);
   }
 }
 

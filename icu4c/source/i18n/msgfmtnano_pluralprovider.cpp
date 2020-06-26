@@ -160,46 +160,22 @@ UnicodeString PluralSelectorImpl::select(void *ctx, double number, UErrorCode& e
     // Message authors should be consistent across sub-messages.
     int32_t otherIndex = findOtherSubMessage(context.msgPattern, context.startIndex);
     context.numberArgIndex = findFirstPluralNumberArg(context.msgPattern, otherIndex, context.argName);
-    if (!context.formatter) {
-        context.formatter = context.numberFormatProvider.numberFormat(NumberFormatProvider::TYPE_NUMBER, context.locale, ec);
-        if (U_FAILURE(ec)) {
-            return other;
-        }
+    if (!context.forReplaceNumber) {
         context.forReplaceNumber = TRUE;
     }
     if (context.number.getDouble(ec) != number) {
         ec = U_INTERNAL_PROGRAM_ERROR;
         return other;
     }
-    context.formatter->format(context.number, context.numberString, ec);
-    auto* decFmt = dynamic_cast<const DecimalFormat *>(context.formatter);
-    if(decFmt != NULL) {
-        number::impl::DecimalQuantity dq;
-        decFmt->formatToDecimalQuantity(context.number, dq, ec);
-        if (U_FAILURE(ec)) {
-            return other;
-        }
-        {
-          const PluralRules *rules = pluralRulesForLocale(context.locale, ec);
-          if (rules) {
-              UnicodeString result = rules->select(dq);
+    context.numberFormatProvider.formatNumber(context.number, NumberFormatProvider::TYPE_NUMBER, context.locale, context.numberString, ec);
+    const PluralRules *rules = pluralRulesForLocale(context.locale, ec);
+    if (rules) {
+        UnicodeString result = rules->select(number);
 #ifdef U_DEBUG_MSGFMTNANO
-              std::string s;
-              fprintf(stderr, "PluralSelectorImpl::select(DecimalQuantity) result=[%s]\n", result.toUTF8String(s).c_str());
+        std::string s;
+        fprintf(stderr, "PluralSelectorImpl::select(double) result=[%s]\n", result.toUTF8String(s).c_str());
 #endif  // U_DEBUG_MSGFMTNANO
-              return result;
-          }
-        }
-    } else {
-      const PluralRules *rules = pluralRulesForLocale(context.locale, ec);
-      if (rules) {
-          UnicodeString result = rules->select(number);
-#ifdef U_DEBUG_MSGFMTNANO
-          std::string s;
-          fprintf(stderr, "PluralSelectorImpl::select(double) result=[%s]\n", result.toUTF8String(s).c_str());
-#endif  // U_DEBUG_MSGFMTNANO
-          return result;
-      }
+        return result;
     }
     if (U_SUCCESS(ec)) {
       ec = U_INTERNAL_PROGRAM_ERROR;
