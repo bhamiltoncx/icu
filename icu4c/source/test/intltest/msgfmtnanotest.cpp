@@ -4,6 +4,7 @@
 #include "unicode/unistr.h"
 #include "unicode/utypes.h"
 #include "unicode/msgfmtnano.h"
+#include "unicode/msgfmtnano_datetimeprovider.h"
 #include "unicode/msgfmtnano_numberprovider.h"
 #include "unicode/msgfmtnano_pluralprovider.h"
 #include "unicode/plurfmt.h"
@@ -16,6 +17,8 @@ public:
     void testEmpty();
     void testBasics();
     void testPlurals();
+    void testDateTime();
+    void testDateTimeLocale();
 };
 
 extern IntlTest *createMessageFormatNanoTest() {
@@ -30,6 +33,8 @@ void MessageFormatNanoTest::runIndexedTest(int32_t index, UBool exec, const char
     TESTCASE_AUTO(testEmpty);
     TESTCASE_AUTO(testBasics);
     TESTCASE_AUTO(testPlurals);
+    TESTCASE_AUTO(testDateTime);
+    TESTCASE_AUTO(testDateTimeLocale);
     TESTCASE_AUTO_END;
 }
 
@@ -108,4 +113,50 @@ void MessageFormatNanoTest::testPlurals() {
         "format plurals other",
         UnicodeString("You have 42 messages"),
         format.format(paramsOther, result, errorCode));
+}
+
+void MessageFormatNanoTest::testDateTime() {
+    IcuTestErrorCode errorCode(*this, "testDateTime");
+    UParseError parseError;
+    MessageFormatNano format("Do not open before {0}",
+        LocalPointer<const NumberFormatProvider>(new NumberFormatProvider()),
+        DateTimeFormatProviderNano::createInstance(errorCode),
+        LocalPointer<const RuleBasedNumberFormatProvider>(new RuleBasedNumberFormatProvider()),
+        LocalPointer<const PluralFormatProvider>(new PluralFormatProvider()),
+        parseError,
+        errorCode);
+    UnicodeString result;
+    const Formattable arguments[] = { Formattable(1572901980000., Formattable::kIsDate) };
+    const MessageFormatNano::FormatParams params =
+            MessageFormatNano::FormatParamsBuilder::withArguments(arguments, UPRV_LENGTHOF(arguments))
+                    .setLocale(Locale::getUS())
+                    .setTimeZone(LocalPointer<const TimeZone>(TimeZone::createTimeZone("Europe/Berlin")))
+                    .build();
+    assertEquals(
+        "format time and date",
+        UnicodeString("Do not open before 11/4/19, 10:13 PM"),
+        format.format(params, result, errorCode));
+}
+
+void MessageFormatNanoTest::testDateTimeLocale() {
+    IcuTestErrorCode errorCode(*this, "testDateTime");
+    UParseError parseError;
+    MessageFormatNano format(UnicodeString(u"Nicht vor dem {0} Uhr \u00f6ffnen"),
+        LocalPointer<const NumberFormatProvider>(new NumberFormatProvider()),
+        DateTimeFormatProviderNano::createInstance(errorCode),
+        LocalPointer<const RuleBasedNumberFormatProvider>(new RuleBasedNumberFormatProvider()),
+        LocalPointer<const PluralFormatProvider>(new PluralFormatProvider()),
+        parseError,
+        errorCode);
+    UnicodeString result;
+    const Formattable arguments[] = { Formattable(1572901980000., Formattable::kIsDate) };
+    const MessageFormatNano::FormatParams params =
+            MessageFormatNano::FormatParamsBuilder::withArguments(arguments, UPRV_LENGTHOF(arguments))
+                    .setLocale(Locale::forLanguageTag("de-DE", errorCode))
+                    .setTimeZone(LocalPointer<const TimeZone>(TimeZone::createTimeZone("Europe/Berlin")))
+                    .build();
+    assertEquals(
+        "format time and date with locale",
+        UnicodeString(u"Nicht vor dem 04.11.19, 22:13 Uhr \u00f6ffnen"),
+        format.format(params, result, errorCode));
 }
