@@ -170,6 +170,7 @@ scriptset.cpp
 search.cpp
 selfmt.cpp
 sharedbreakiterator.cpp
+sharedformat.cpp
 simpletz.cpp
 smpdtfmt.cpp
 smpdtfst.cpp
