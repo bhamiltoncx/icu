@@ -96,6 +96,7 @@ msgfmtnano.cpp
 msgfmtnano_datetimeprovider.cpp
 msgfmtnano_numberprovider.cpp
 msgfmtnano_pluralprovider.cpp
+msgfmtnano_rulebasednumberprovider.cpp
 name2uni.cpp
 nfrs.cpp
 nfrule.cpp

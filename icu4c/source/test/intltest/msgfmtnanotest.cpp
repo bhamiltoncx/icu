@@ -7,6 +7,7 @@
 #include "unicode/msgfmtnano_datetimeprovider.h"
 #include "unicode/msgfmtnano_numberprovider.h"
 #include "unicode/msgfmtnano_pluralprovider.h"
+#include "unicode/msgfmtnano_rulebasednumberprovider.h"
 #include "unicode/plurfmt.h"
 #include "cmemory.h"
 #include "intltest.h"
@@ -20,6 +21,8 @@ public:
     void testDateTime();
     void testDateTimeParamTypes();
     void testDateTimeSeparateParamTypesSkeletonLocale();
+    void testRuleBasedNumbers();
+    void testRuleBasedNumbersWithDefaultRuleSet();
 };
 
 extern IntlTest *createMessageFormatNanoTest() {
@@ -37,6 +40,8 @@ void MessageFormatNanoTest::runIndexedTest(int32_t index, UBool exec, const char
     TESTCASE_AUTO(testDateTime);
     TESTCASE_AUTO(testDateTimeParamTypes);
     TESTCASE_AUTO(testDateTimeSeparateParamTypesSkeletonLocale);
+    TESTCASE_AUTO(testRuleBasedNumbers);
+    TESTCASE_AUTO(testRuleBasedNumbersWithDefaultRuleSet);
     TESTCASE_AUTO_END;
 }
 
@@ -183,5 +188,48 @@ void MessageFormatNanoTest::testDateTimeSeparateParamTypesSkeletonLocale() {
     assertEquals(
         "format time and date with locale",
         UnicodeString(u"Nicht vor dem 4. November 22:13 Uhr \u00f6ffnen"),
+        format.format(params, result, errorCode));
+}
+
+void MessageFormatNanoTest::testRuleBasedNumbers() {
+    IcuTestErrorCode errorCode(*this, "testRuleBasedNumbers");
+    UParseError parseError;
+    MessageFormatNano format(UnicodeString(u"I've got {0,spellout} problems of the {1,ordinal} degree"),
+        LocalPointer<const NumberFormatProvider>(new NumberFormatProvider()),
+        LocalPointer<const DateTimeFormatProvider>(new DateTimeFormatProvider()),
+        RuleBasedNumberFormatProviderNano::createInstance(errorCode),
+        LocalPointer<const PluralFormatProvider>(new PluralFormatProvider()),
+        parseError,
+        errorCode);
+    UnicodeString result;
+    const Formattable arguments[] = { 99, 42 };
+    const MessageFormatNano::FormatParams params =
+            MessageFormatNano::FormatParamsBuilder::withArguments(arguments, UPRV_LENGTHOF(arguments))
+                    .build();
+    assertEquals(
+        "format rule based numbers",
+        UnicodeString(u"I've got ninety-nine problems of the 42nd degree"),
+        format.format(params, result, errorCode));
+}
+
+void MessageFormatNanoTest::testRuleBasedNumbersWithDefaultRuleSet() {
+    IcuTestErrorCode errorCode(*this, "testRuleBasedNumbersWithDefaultRuleSet");
+    UParseError parseError;
+    MessageFormatNano format(UnicodeString(u"masc={0,spellout,%spellout-cardinal-masculine} fem={0,spellout,%spellout-cardinal-feminine}"),
+        LocalPointer<const NumberFormatProvider>(new NumberFormatProvider()),
+        LocalPointer<const DateTimeFormatProvider>(new DateTimeFormatProvider()),
+        RuleBasedNumberFormatProviderNano::createInstance(errorCode),
+        LocalPointer<const PluralFormatProvider>(new PluralFormatProvider()),
+        parseError,
+        errorCode);
+    UnicodeString result;
+    const Formattable arguments[] = { 2, 2 };
+    const MessageFormatNano::FormatParams params =
+            MessageFormatNano::FormatParamsBuilder::withArguments(arguments, UPRV_LENGTHOF(arguments))
+                    .setLocale(Locale::forLanguageTag("he-HE", errorCode))
+                    .build();
+    assertEquals(
+        "format rule based numbers with default rule set",
+        UnicodeString(u"masc=\u05E9\u05E0\u05D9 fem=\u05E9\u05EA\u05D9"),
         format.format(params, result, errorCode));
 }
