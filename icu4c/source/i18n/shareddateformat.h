@@ -14,7 +14,7 @@ class DateFormat;
 class U_I18N_API SharedDateFormat : public SharedObject {
 public:
     SharedDateFormat(DateFormat *nfToAdopt) : ptr(nfToAdopt) { }
-    virtual ~SharedDateFormat() { }
+    ~SharedDateFormat();
     const DateFormat *get() const { return ptr; }
     const DateFormat *operator->() const { return ptr; }
     const DateFormat &operator*() const { return *ptr; }

@@ -17,6 +17,8 @@ const SharedFormat *LocaleCacheKey<SharedFormat>::createObject(
     return NULL;
 }
 
+SharedFormat::~SharedFormat() { }
+
 U_NAMESPACE_END
 
 #endif  // #!UCONFIG_NO_FORMATTING

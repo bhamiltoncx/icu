@@ -22,10 +22,11 @@
 #include "unicode/parseerr.h"
 #include "unicode/timezone.h"
 #include "unicode/unistr.h"
+#include "unicode/uobject.h"
 
 U_NAMESPACE_BEGIN
 
-class U_I18N_API NumberFormatProvider {
+class U_I18N_API NumberFormatProvider : public UObject {
 public:
     enum NumberFormatType {
         TYPE_NUMBER,
@@ -40,7 +41,7 @@ public:
     NumberFormatProvider(const NumberFormatProvider&) = delete;
     NumberFormatProvider &operator=(const NumberFormatProvider&) = delete;
 
-    virtual ~NumberFormatProvider() {}
+    ~NumberFormatProvider();
 
     virtual void formatNumber(const Formattable& /*number*/, NumberFormatType /*type*/, const Locale& /*locale*/, UnicodeString& /*appendTo*/, UErrorCode& status) const {
         status = U_UNSUPPORTED_ERROR;
@@ -55,7 +56,7 @@ public:
     }
 };
 
-class U_I18N_API DateTimeFormatProvider {
+class U_I18N_API DateTimeFormatProvider : public UObject {
 public:
     DateTimeFormatProvider() = default;
     DateTimeFormatProvider(DateTimeFormatProvider&&) = default;
@@ -63,7 +64,7 @@ public:
     DateTimeFormatProvider(const DateTimeFormatProvider&) = delete;
     DateTimeFormatProvider &operator=(const DateTimeFormatProvider&) = delete;
 
-    virtual ~DateTimeFormatProvider() {}
+    ~DateTimeFormatProvider();
 
     enum DateTimeStyle {
         STYLE_NONE,
@@ -83,7 +84,7 @@ public:
     }
 };
 
-class U_I18N_API RuleBasedNumberFormatProvider {
+class U_I18N_API RuleBasedNumberFormatProvider : public UObject {
 public:
     RuleBasedNumberFormatProvider() = default;
     RuleBasedNumberFormatProvider(RuleBasedNumberFormatProvider&&) = default;
@@ -91,7 +92,7 @@ public:
     RuleBasedNumberFormatProvider(const RuleBasedNumberFormatProvider&) = delete;
     RuleBasedNumberFormatProvider &operator=(const RuleBasedNumberFormatProvider&) = delete;
 
-    virtual ~RuleBasedNumberFormatProvider() {}
+    ~RuleBasedNumberFormatProvider();
 
     enum RuleBasedNumberFormatType {
         TYPE_SPELLOUT,
@@ -104,7 +105,7 @@ public:
     }
 };
 
-class U_I18N_API PluralFormatProvider {
+class U_I18N_API PluralFormatProvider : public UObject {
 public:
     PluralFormatProvider() = default;
     PluralFormatProvider(PluralFormatProvider&&) = default;
@@ -112,14 +113,14 @@ public:
     PluralFormatProvider(const PluralFormatProvider&) = delete;
     PluralFormatProvider &operator=(const PluralFormatProvider&) = delete;
 
-    virtual ~PluralFormatProvider() {}
+    ~PluralFormatProvider();
 
     enum PluralType {
         TYPE_CARDINAL,
         TYPE_ORDINAL,
     };
 
-    class U_I18N_API Selector {
+    class U_I18N_API Selector : public UObject {
     public:
         Selector() = default;
         Selector(Selector&&) = default;
@@ -127,7 +128,7 @@ public:
         Selector(const Selector&) = delete;
         Selector &operator=(const Selector&) = delete;
 
-        virtual ~Selector() { }
+        ~Selector();
         virtual UnicodeString select(void *ctx, double number, UErrorCode& ec) const = 0;
     };
 
@@ -181,7 +182,7 @@ public:
     };
 };
 
-class U_I18N_API MessageFormatNano {
+class U_I18N_API MessageFormatNano : public UObject {
 public:
     /**
      * Constructs a new MessageFormatNano using the given pattern and locale.
@@ -220,6 +221,7 @@ public:
 
     MessageFormatNano(MessageFormatNano&&) = default;
     MessageFormatNano &operator=(MessageFormatNano&&) = default;
+    ~MessageFormatNano();
 
     class FormatParamsBuilder;
 

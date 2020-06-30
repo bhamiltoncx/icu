@@ -869,6 +869,7 @@ library: i18n
     dayperiodrules
     listformatter
     formatting formattable_cnv regex regex_cnv translit
+    msgfmtnano msgfmtnano_providers
     double_conversion number_representation number_output numberformatter number_skeletons numberparser
     units_extra
     universal_time_scale
@@ -1056,6 +1057,30 @@ group: formatting
     sharedbreakiterator # for reldatefmt.o
     uclean_i18n
     region
+
+group: msgfmtnano_providers
+    msgfmtnano_datetimeprovider.o msgfmtnano_numberprovider.o msgfmtnano_pluralprovider.o msgfmtnano_rulebasednumberprovider.o
+  deps
+    formatting
+    msgfmtnano
+    sharedformat
+    shareddateformat
+
+group: msgfmtnano
+    msgfmtnano.o
+  deps
+    formattable
+    common
+
+group: sharedformat
+    sharedformat.o
+  deps
+    platform
+
+group: shareddateformat
+    shareddateformat.o
+  deps
+    platform
 
 group: sharedbreakiterator
     sharedbreakiterator.o

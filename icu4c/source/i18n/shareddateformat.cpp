@@ -17,6 +17,8 @@ const SharedDateFormat *LocaleCacheKey<SharedDateFormat>::createObject(
     return NULL;
 }
 
+SharedDateFormat::~SharedDateFormat() { }
+
 U_NAMESPACE_END
 
 #endif  // #!UCONFIG_NO_FORMATTING

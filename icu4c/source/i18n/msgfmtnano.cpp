@@ -649,6 +649,12 @@ void FormatOperation::formatArgWithExplicitType(const Formattable& arg, const Un
 
 }  // namespace
 
+NumberFormatProvider::~NumberFormatProvider() { }
+DateTimeFormatProvider::~DateTimeFormatProvider() { }
+RuleBasedNumberFormatProvider::~RuleBasedNumberFormatProvider() { }
+PluralFormatProvider::~PluralFormatProvider() { }
+PluralFormatProvider::Selector::~Selector() { }
+
 //--------------------------------------------------------------------
 
 MessageFormatNano::MessageFormatNano(const UnicodeString& pattern,
@@ -675,6 +681,8 @@ MessageFormatNano::MessageFormatNano(const UnicodeString& pattern,
           pluralFormatProvider(std::move(pluralFormatProvider))
 {
 }
+
+MessageFormatNano::~MessageFormatNano() { }
 
 UnicodeString& MessageFormatNano::format(const FormatParams& formatParams,
                                          UnicodeString& appendTo,

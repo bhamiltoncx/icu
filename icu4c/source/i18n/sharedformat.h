@@ -14,7 +14,7 @@ class Format;
 class U_I18N_API SharedFormat : public SharedObject {
 public:
     SharedFormat(Format *nfToAdopt) : ptr(nfToAdopt) { }
-    virtual ~SharedFormat() { }
+    ~SharedFormat();
     const Format *get() const { return ptr; }
     const Format *operator->() const { return ptr; }
     const Format &operator*() const { return *ptr; }
