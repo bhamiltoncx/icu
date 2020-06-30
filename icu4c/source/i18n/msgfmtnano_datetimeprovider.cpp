@@ -5,8 +5,8 @@
 
 #if !UCONFIG_NO_FORMATTING
 
-#include "hash.h"
-#include "mutex.h"
+#include "shareddateformat.h"
+#include "unifiedcache.h"
 #include "unicode/bytestream.h"
 #include "unicode/calendar.h"
 #include "unicode/datefmt.h"
@@ -15,18 +15,99 @@
 #include "unicode/timezone.h"
 #include "unicode/uloc.h"
 
-U_CDECL_BEGIN
-
-static void U_CALLCONV
-deleteFormat(void *obj) {
-    delete static_cast<icu::Format *>(obj);
-}
-
-U_CDECL_END
-
 U_NAMESPACE_BEGIN
 
 namespace {
+
+class DateFormatWithStylesKey : public LocaleCacheKey<SharedDateFormat> {
+public:
+    DateFormatWithStylesKey(
+        const Locale &loc,
+        DateFormat::EStyle dateStyle,
+        DateFormat::EStyle timeStyle)
+            : LocaleCacheKey<SharedDateFormat>(loc),
+              dateStyle(dateStyle),
+              timeStyle(timeStyle) { }
+    DateFormatWithStylesKey(const DateFormatWithStylesKey &other) :
+            LocaleCacheKey<SharedDateFormat>(other),
+            dateStyle(other.dateStyle),
+            timeStyle(other.timeStyle) { }
+    int32_t hashCode() const {
+      int32_t result = 1;
+      result = 37u * result + (uint32_t)LocaleCacheKey<SharedDateFormat>::hashCode();
+      result = 37u * result + (uint32_t)dateStyle;
+      result = 37u * result + (uint32_t)timeStyle;
+      return result;
+    }
+    UBool operator==(const CacheKeyBase &other) const {
+       // reflexive
+       if (this == &other) {
+           return TRUE;
+       }
+       if (!LocaleCacheKey<SharedDateFormat>::operator==(other)) {
+           return FALSE;
+       }
+       // We know that this and other are of same class if we get this far.
+       const DateFormatWithStylesKey &realOther =
+               static_cast<const DateFormatWithStylesKey &>(other);
+       return (realOther.dateStyle == dateStyle && realOther.timeStyle == timeStyle);
+    }
+    CacheKeyBase *clone() const {
+        return new DateFormatWithStylesKey(*this);
+    }
+    const SharedDateFormat *createObject(
+        const void * /*unused*/, UErrorCode &/*status*/) const {
+        DateFormat *format = DateFormat::createDateTimeInstance(dateStyle, timeStyle, fLoc);
+        SharedDateFormat *result = new SharedDateFormat(format);
+        result->addRef();
+        return result;
+    }
+
+  private:
+    const DateFormat::EStyle dateStyle;
+    const DateFormat::EStyle timeStyle;
+};
+
+class DateFormatWithSkeletonKey : public LocaleCacheKey<SharedDateFormat> {
+public:
+    DateFormatWithSkeletonKey(
+        const Locale& loc,
+        const UnicodeString& skeleton)
+            : LocaleCacheKey<SharedDateFormat>(loc),
+              skeleton(skeleton) { }
+    DateFormatWithSkeletonKey(const DateFormatWithSkeletonKey &other) :
+            LocaleCacheKey<SharedDateFormat>(other),
+            skeleton(other.skeleton) { }
+    int32_t hashCode() const {
+        return (int32_t)(37u * (uint32_t)LocaleCacheKey<SharedDateFormat>::hashCode() + (uint32_t)skeleton.hashCode());
+    }
+    UBool operator==(const CacheKeyBase &other) const {
+       // reflexive
+       if (this == &other) {
+           return TRUE;
+       }
+       if (!LocaleCacheKey<SharedDateFormat>::operator==(other)) {
+           return FALSE;
+       }
+       // We know that this and other are of same class if we get this far.
+       const DateFormatWithSkeletonKey &realOther =
+               static_cast<const DateFormatWithSkeletonKey &>(other);
+       return (realOther.skeleton == skeleton);
+    }
+    CacheKeyBase *clone() const {
+        return new DateFormatWithSkeletonKey(*this);
+    }
+    const SharedDateFormat *createObject(
+            const void * /*unused*/, UErrorCode &status) const {
+        DateFormat* format = DateFormat::createInstanceForSkeleton(skeleton, fLoc, status);
+        SharedDateFormat *result = new SharedDateFormat(format);
+        result->addRef();
+        return result;
+    }
+
+  private:
+    const UnicodeString skeleton;
+};
 
 DateFormat::EStyle dateTimeStyleToDateFormatStyle(DateTimeFormatProvider::DateTimeStyle style, UErrorCode& status) {
     switch (style) {
@@ -47,29 +128,6 @@ DateFormat::EStyle dateTimeStyleToDateFormatStyle(DateTimeFormatProvider::DateTi
     return DateFormat::kDefault;
 }
 
-void appendDateTimeStyleString(DateTimeFormatProvider::DateTimeStyle style, std::string& key) {
-    switch (style) {
-        case DateTimeFormatProvider::STYLE_NONE:
-            key.append("none");
-            break;
-        case DateTimeFormatProvider::STYLE_DEFAULT:
-            key.append("default");
-            break;
-        case DateTimeFormatProvider::STYLE_SHORT:
-            key.append("short");
-            break;
-        case DateTimeFormatProvider::STYLE_MEDIUM:
-            key.append("medium");
-            break;
-        case DateTimeFormatProvider::STYLE_LONG:
-            key.append("long");
-            break;
-        case DateTimeFormatProvider::STYLE_FULL:
-            key.append("full");
-            break;
-    }
-}
-
 void formattableToUDate(const Formattable& date, UDate& udate, UErrorCode& status) {
     switch (date.getType()) {
     case Formattable::kDate:
@@ -87,15 +145,27 @@ void formattableToUDate(const Formattable& date, UDate& udate, UErrorCode& statu
     }
 }
 
-// Protects access to |formatters|.
-UMutex gMutex;
+LocalPointer<Calendar> calendarWithDateAndTimeZone(const Locale& locale, const Calendar* calendar, const Formattable& date, const TimeZone* timeZone, UErrorCode& status) {
+    LocalPointer<Calendar> localCalendar;
+    if (calendar) {
+        localCalendar.adoptInstead(calendar->clone());
+    } else if (timeZone) {
+        localCalendar.adoptInstead(Calendar::createInstance(*timeZone, locale, status));
+    } else {
+        localCalendar.adoptInstead(Calendar::createInstance(TimeZone::createDefault(), locale, status));
+    }
+    UDate udate;
+    formattableToUDate(date, udate, status);
+    localCalendar->setTime(udate, status);
+    if (timeZone) {
+        localCalendar->setTimeZone(*timeZone);
+    }
+    return localCalendar;
+}
 
 class DateTimeFormatProviderImpl : public DateTimeFormatProvider {
  public:
-    DateTimeFormatProviderImpl(UErrorCode& status) :
-        formatters(/*ignoreKeyCase=*/FALSE, status) {
-      formatters.setValueDeleter(deleteFormat);
-    }
+    DateTimeFormatProviderImpl() = default;
     DateTimeFormatProviderImpl &operator=(DateTimeFormatProviderImpl&&) = default;
     DateTimeFormatProviderImpl(DateTimeFormatProviderImpl&&) = default;
     DateTimeFormatProviderImpl &operator=(const DateTimeFormatProviderImpl&) = delete;
@@ -103,80 +173,41 @@ class DateTimeFormatProviderImpl : public DateTimeFormatProvider {
 
     void formatDateTime(const Formattable& date, DateTimeStyle dateStyle, DateTimeStyle timeStyle, const Locale& locale, const TimeZone* timeZone, UnicodeString& appendTo, UErrorCode& status) const;
     void formatDateTimeWithSkeleton(const Formattable& date, const UnicodeString& skeleton, const Locale& locale, const TimeZone* timeZone, UnicodeString& appendTo, UErrorCode& status) const;
-
- private:
-    mutable Hashtable formatters;
 };
 
 void DateTimeFormatProviderImpl::formatDateTime(const Formattable& date, DateTimeStyle dateStyle, DateTimeStyle timeStyle, const Locale& locale, const TimeZone* timeZone, UnicodeString& appendTo, UErrorCode& status) const {
-  std::string key;
-  key.append("dateStyle=");
-  appendDateTimeStyleString(dateStyle, key);
-  key.append("|timeStyle=");
-  appendDateTimeStyleString(timeStyle, key);
-  key.append("|");
-  StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
-  locale.toLanguageTag(keySink, status);
-  UnicodeString ukey(key.data(), key.length(), US_INV);
-  DateFormat::EStyle dateFormatStyle = dateTimeStyleToDateFormatStyle(dateStyle, status);
-  DateFormat::EStyle timeFormatStyle = dateTimeStyleToDateFormatStyle(timeStyle, status);
-  DateFormat* format;
-  {
-    Mutex lock(&gMutex);
-    format = static_cast<DateFormat*>(formatters.get(ukey));
-    if (!format) {
-        format = DateFormat::createDateTimeInstance(dateFormatStyle, timeFormatStyle, locale);
-        if (format) {
-            formatters.put(ukey, format, status);
-        }
+    const UnifiedCache* cache = UnifiedCache::getInstance(status);
+    if (U_FAILURE(status)) {
+        return;
     }
-    if (!format && U_SUCCESS(status)) {
-        status = U_INTERNAL_PROGRAM_ERROR;
+    DateFormat::EStyle dateFormatStyle = dateTimeStyleToDateFormatStyle(dateStyle, status);
+    DateFormat::EStyle timeFormatStyle = dateTimeStyleToDateFormatStyle(timeStyle, status);
+    if (U_FAILURE(status)) {
+      return;
     }
-  }
-  if (U_SUCCESS(status)) {
-      LocalPointer<Calendar> localCalendar(format->getCalendar()->clone());
-      UDate udate;
-      formattableToUDate(date, udate, status);
-      localCalendar->setTime(udate, status);
-      if (timeZone) {
-          localCalendar->setTimeZone(*timeZone);
-      }
-      format->format(*localCalendar, appendTo, /*posIter=*/nullptr, status);
-  }
+    const SharedDateFormat* shared = nullptr;
+    cache->get(DateFormatWithStylesKey(locale, dateFormatStyle, timeFormatStyle), shared, status);
+    if (U_FAILURE(status)) {
+        return;
+    }
+    LocalPointer<Calendar> localCalendar(calendarWithDateAndTimeZone(locale, (*shared)->getCalendar(), date, timeZone, status));
+    (*shared)->format(*localCalendar, appendTo, /*posIter=*/nullptr, status);
+    shared->removeRef();
 }
 
 void DateTimeFormatProviderImpl::formatDateTimeWithSkeleton(const Formattable& date, const UnicodeString& skeleton, const Locale& locale, const TimeZone* timeZone, UnicodeString& appendTo, UErrorCode& status) const {
-  std::string key("skeleton|");
-  StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
-  skeleton.toUTF8(keySink);
-  key.append("|");
-  locale.toLanguageTag(keySink, status);
-  UnicodeString ukey(UnicodeString::fromUTF8(StringPiece(key)));
-  DateFormat* format;
-  {
-    Mutex lock(&gMutex);
-    format = static_cast<DateFormat*>(formatters.get(ukey));
-    if (!format) {
-        format = DateFormat::createInstanceForSkeleton(skeleton, locale, status);
-        if (format) {
-            formatters.put(ukey, format, status);
-        }
+    const UnifiedCache* cache = UnifiedCache::getInstance(status);
+    if (U_FAILURE(status)) {
+        return;
     }
-    if (!format && U_SUCCESS(status)) {
-        status = U_INTERNAL_PROGRAM_ERROR;
+    const SharedDateFormat* shared = nullptr;
+    cache->get(DateFormatWithSkeletonKey(locale, skeleton), shared, status);
+    if (U_FAILURE(status)) {
+        return;
     }
-  }
-  if (U_SUCCESS(status)) {
-      LocalPointer<Calendar> localCalendar(format->getCalendar()->clone());
-      UDate udate;
-      formattableToUDate(date, udate, status);
-      localCalendar->setTime(udate, status);
-      if (timeZone) {
-          localCalendar->setTimeZone(*timeZone);
-      }
-      format->format(*localCalendar, appendTo, /*posIter=*/nullptr, status);
-  }
+    LocalPointer<Calendar> localCalendar(calendarWithDateAndTimeZone(locale, (*shared)->getCalendar(), date, timeZone, status));
+    (*shared)->format(*localCalendar, appendTo, /*posIter=*/nullptr, status);
+    shared->removeRef();
 }
 
 }  // namespace
@@ -185,7 +216,7 @@ LocalPointer<const DateTimeFormatProvider> DateTimeFormatProviderNano::createIns
     if (U_FAILURE(success)) {
         return LocalPointer<const DateTimeFormatProvider>();
     }
-    return LocalPointer<const DateTimeFormatProvider>(new DateTimeFormatProviderImpl(success));
+    return LocalPointer<const DateTimeFormatProvider>(new DateTimeFormatProviderImpl());
 }
 
 U_NAMESPACE_END

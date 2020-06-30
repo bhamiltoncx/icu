@@ -1,15 +1,8 @@
-// © 2016 and later: Unicode, Inc. and others.
+// © 2020 and later: Unicode, Inc. and others.
 // License & terms of use: http://www.unicode.org/copyright.html
-/*
-******************************************************************************
-* Copyright (C) 2014, International Business Machines
-* Corporation and others.  All Rights Reserved.
-******************************************************************************
-* sharednumberformat.h
-*/
 
-#ifndef __SHARED_NUMBERFORMAT_H__
-#define __SHARED_NUMBERFORMAT_H__
+#ifndef __SHARED_FORMAT_H__
+#define __SHARED_FORMAT_H__
 
 #include "unicode/utypes.h"
 #include "sharedobject.h"

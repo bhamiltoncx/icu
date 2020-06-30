@@ -191,6 +191,7 @@ void NumberFormatProviderImpl::formatNumber(const Formattable& number, NumberFor
         return;
     }
     (*shared)->format(number, appendTo, status);
+    shared->removeRef();
 }
 
 void NumberFormatProviderImpl::formatNumberWithSkeleton(const Formattable& number, const UnicodeString& skeleton, const Locale& locale, UnicodeString& appendTo, UErrorCode& status) const {
@@ -204,6 +205,7 @@ void NumberFormatProviderImpl::formatNumberWithSkeleton(const Formattable& numbe
         return;
     }
     (*shared)->format(number, appendTo, status);
+    shared->removeRef();
 }
 
 void NumberFormatProviderImpl::formatDecimalNumberWithPattern(const Formattable& number, const UnicodeString& pattern, const Locale& locale, UnicodeString& appendTo, UErrorCode& status) const {
@@ -217,6 +219,7 @@ void NumberFormatProviderImpl::formatDecimalNumberWithPattern(const Formattable&
         return;
     }
     (*shared)->format(number, appendTo, status);
+    shared->removeRef();
 }
 
 }  // namespace
