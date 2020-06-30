@@ -5,8 +5,8 @@
 
 #if !UCONFIG_NO_FORMATTING
 
-#include "hash.h"
-#include "mutex.h"
+#include "sharedformat.h"
+#include "unifiedcache.h"
 #include "unicode/bytestream.h"
 #include "unicode/decimfmt.h"
 #include "unicode/msgfmtnano.h"
@@ -15,90 +15,102 @@
 #include "unicode/numfmt.h"
 #include "unicode/uloc.h"
 
-U_CDECL_BEGIN
-
-static void U_CALLCONV
-deleteRuleBasedNumberFormat(void *obj) {
-    delete static_cast<icu::RuleBasedNumberFormat *>(obj);
-}
-
-U_CDECL_END
-
 U_NAMESPACE_BEGIN
 
 namespace {
 
-// Protects access to |formatters|.
-UMutex gMutex;
+class RuleBasedNumberFormatKey : public LocaleCacheKey<SharedFormat> {
+public:
+    RuleBasedNumberFormatKey(
+        const Locale& loc,
+        URBNFRuleSetTag ruleSetTag,
+        const UnicodeString& defaultRuleSet)
+            : LocaleCacheKey<SharedFormat>(loc),
+              ruleSetTag(ruleSetTag),
+              defaultRuleSet(defaultRuleSet) { }
+    RuleBasedNumberFormatKey(const RuleBasedNumberFormatKey &other) :
+            LocaleCacheKey<SharedFormat>(other),
+            ruleSetTag(other.ruleSetTag),
+            defaultRuleSet(other.defaultRuleSet) { }
+    int32_t hashCode() const {
+        int32_t result = 1;
+        result = 37u * result + (uint32_t)LocaleCacheKey<SharedFormat>::hashCode();
+        result = 37u * result + (uint32_t)ruleSetTag;
+        result = 37u * result + (uint32_t)defaultRuleSet.hashCode();
+        return result;
+    }
+    UBool operator==(const CacheKeyBase &other) const {
+       // reflexive
+       if (this == &other) {
+           return TRUE;
+       }
+       if (!LocaleCacheKey<SharedFormat>::operator==(other)) {
+           return FALSE;
+       }
+       // We know that this and other are of same class if we get this far.
+       const RuleBasedNumberFormatKey &realOther =
+               static_cast<const RuleBasedNumberFormatKey &>(other);
+       return (realOther.ruleSetTag == ruleSetTag && realOther.defaultRuleSet == defaultRuleSet);
+    }
+    CacheKeyBase *clone() const {
+        return new RuleBasedNumberFormatKey(*this);
+    }
+    const SharedFormat *createObject(
+            const void * /*unused*/, UErrorCode &status) const {
+        RuleBasedNumberFormat* format = new RuleBasedNumberFormat(ruleSetTag, fLoc, status);
+        if (format && !defaultRuleSet.isEmpty()) {
+            format->setDefaultRuleSet(defaultRuleSet, status);
+        }
+        SharedFormat *result = new SharedFormat(format);
+        result->addRef();
+        return result;
+    }
+
+  private:
+    const URBNFRuleSetTag ruleSetTag;
+    const UnicodeString defaultRuleSet;
+};
+
+URBNFRuleSetTag ruleSetTagForNumberFormatType(RuleBasedNumberFormatProvider::RuleBasedNumberFormatType type, UErrorCode& status) {
+    switch (type) {
+      case RuleBasedNumberFormatProvider::TYPE_SPELLOUT:
+        return URBNF_SPELLOUT;
+      case RuleBasedNumberFormatProvider::TYPE_DURATION:
+        return URBNF_DURATION;
+      case RuleBasedNumberFormatProvider::TYPE_ORDINAL:
+        return URBNF_ORDINAL;
+    }
+    status = U_INTERNAL_PROGRAM_ERROR;
+    return URBNF_SPELLOUT;
+}
 
 class RuleBasedNumberFormatProviderImpl : public RuleBasedNumberFormatProvider {
  public:
-    RuleBasedNumberFormatProviderImpl(UErrorCode& status) :
-        formatters(/*ignoreKeyCase=*/FALSE, status) {
-      formatters.setValueDeleter(deleteRuleBasedNumberFormat);
-    }
+    RuleBasedNumberFormatProviderImpl() = default;
     RuleBasedNumberFormatProviderImpl &operator=(RuleBasedNumberFormatProviderImpl&&) = default;
     RuleBasedNumberFormatProviderImpl(RuleBasedNumberFormatProviderImpl&&) = default;
     RuleBasedNumberFormatProviderImpl &operator=(const RuleBasedNumberFormatProviderImpl&) = delete;
     RuleBasedNumberFormatProviderImpl(const RuleBasedNumberFormatProviderImpl&) = delete;
 
     void formatRuleBasedNumber(const Formattable& number, RuleBasedNumberFormatType type, const Locale& locale, const UnicodeString& defaultRuleSet, UnicodeString& appendTo, UErrorCode& status) const;
-
- private:
-    mutable Hashtable formatters;
 };
 
 void RuleBasedNumberFormatProviderImpl::formatRuleBasedNumber(const Formattable& number, RuleBasedNumberFormatType type, const Locale& locale, const UnicodeString& defaultRuleSet, UnicodeString& appendTo, UErrorCode& status) const {
-  std::string key;
-  switch (type) {
-    case RuleBasedNumberFormatProvider::TYPE_SPELLOUT:
-      key.append("spellout|");
-      break;
-    case RuleBasedNumberFormatProvider::TYPE_DURATION:
-      key.append("duration|");
-      break;
-    case RuleBasedNumberFormatProvider::TYPE_ORDINAL:
-      key.append("ordinal|");
-      break;
-  }
-  if (!defaultRuleSet.isEmpty()) {
-    key.append("defaultRuleSet=");
-    defaultRuleSet.toUTF8String(key);
-    key.append("|");
-  }
-  StringByteSink<std::string> keySink(&key, /*initialAppendCapacity=*/32);
-  locale.toLanguageTag(keySink, status);
-  UnicodeString ukey(key.data(), key.length(), US_INV);
-  RuleBasedNumberFormat* format;
-  {
-    Mutex lock(&gMutex);
-    format = static_cast<RuleBasedNumberFormat*>(formatters.get(ukey));
-    if (!format) {
-      switch (type) {
-        case RuleBasedNumberFormatProvider::TYPE_SPELLOUT:
-          format = new RuleBasedNumberFormat(URBNF_SPELLOUT, locale, status);
-          break;
-        case RuleBasedNumberFormatProvider::TYPE_DURATION:
-          format = new RuleBasedNumberFormat(URBNF_DURATION, locale, status);
-          break;
-        case RuleBasedNumberFormatProvider::TYPE_ORDINAL:
-          format = new RuleBasedNumberFormat(URBNF_ORDINAL, locale, status);
-          break;
-      }
-      if (format && !defaultRuleSet.isEmpty()) {
-        format->setDefaultRuleSet(defaultRuleSet, status);
-      }
-      if (format) {
-        formatters.put(ukey, format, status);
-      }
+    const UnifiedCache* cache = UnifiedCache::getInstance(status);
+    if (U_FAILURE(status)) {
+        return;
     }
-    if (!format && U_SUCCESS(status)) {
-      status = U_INTERNAL_PROGRAM_ERROR;
+    const SharedFormat* shared = nullptr;
+    URBNFRuleSetTag ruleSetTag = ruleSetTagForNumberFormatType(type, status);
+    if (U_FAILURE(status)) {
+      return;
     }
-  }
-  if (U_SUCCESS(status)) {
-      format->format(number, appendTo, status);
-  }
+    cache->get(RuleBasedNumberFormatKey(locale, ruleSetTag, defaultRuleSet), shared, status);
+    if (U_FAILURE(status)) {
+        return;
+    }
+    (*shared)->format(number, appendTo, status);
+    shared->removeRef();
 }
 
 }  // namespace
@@ -107,7 +119,7 @@ LocalPointer<const RuleBasedNumberFormatProvider> RuleBasedNumberFormatProviderN
     if (U_FAILURE(success)) {
         return LocalPointer<const RuleBasedNumberFormatProvider>();
     }
-    return LocalPointer<const RuleBasedNumberFormatProvider>(new RuleBasedNumberFormatProviderImpl(success));
+    return LocalPointer<const RuleBasedNumberFormatProvider>(new RuleBasedNumberFormatProviderImpl());
 }
 
 U_NAMESPACE_END
